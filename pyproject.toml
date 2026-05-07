@@ -29,6 +29,7 @@ Issues = "https://github.com/504s2n/s2n/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "responses", "pytest-cov", "build", "twine"]
+ai = ["s2n-agent>=0.1.0"]
 
 [project.scripts]
 s2n = "s2n.s2nscanner.cli.runner:cli"
