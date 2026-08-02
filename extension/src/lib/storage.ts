@@ -2,6 +2,7 @@
  * S2N Scanner - Local Storage Utility
  */
 
+import { normalizeReferences } from '@/types/scan'
 import type { ScanHistoryItem } from '@/types/scan'
 
 const STORAGE_KEY = 's2n_scan_history'
@@ -21,6 +22,20 @@ function trimHistory(history: ScanHistoryItem[]): ScanHistoryItem[] {
     return trimmed
 }
 
+/** 구 버전 저장 데이터의 단일 `reference` 필드를 `references` 배열로 정규화한다 (EXT-007). */
+function migrateHistoryItem(item: ScanHistoryItem): ScanHistoryItem {
+    return {
+        ...item,
+        findings: (item.findings ?? []).map((finding) => {
+            const legacy = finding as unknown as { reference?: unknown; references?: unknown }
+            return {
+                ...finding,
+                references: Array.isArray(legacy.references) ? (legacy.references as string[]) : normalizeReferences(legacy.reference),
+            }
+        }),
+    }
+}
+
 /**
  * 히스토리 전체 로드
  */
@@ -33,7 +48,7 @@ export async function getScanHistory(): Promise<ScanHistoryItem[]> {
                 return
             }
             const history = result[STORAGE_KEY]
-            resolve(Array.isArray(history) ? history : [])
+            resolve(Array.isArray(history) ? history.map(migrateHistoryItem) : [])
         })
     })
 }

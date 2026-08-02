@@ -23,7 +23,7 @@ describe('generateHtmlReport', () => {
                 severity: 'HIGH',
                 title: '<script>alert(1)</script>',
                 description: '<img src=x onerror=alert(1)>',
-                reference: 'javascript:alert(1)',
+                references: ['javascript:alert(1)', 'https://owasp.org/www-community/attacks/xss/'],
                 timestamp: new Date().toISOString(),
             }],
         }
@@ -34,5 +34,6 @@ describe('generateHtmlReport', () => {
         expect(report).not.toContain('<script')
         expect(report).not.toContain('href="javascript:')
         expect(report).not.toContain('cdn.tailwindcss.com')
+        expect(report).toContain('href="https://owasp.org/www-community/attacks/xss/"')
     })
 })

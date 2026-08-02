@@ -31,7 +31,9 @@ function safeHref(value: string): string | null {
  */
 export function generateHtmlReport(scan: ScanHistoryItem): string {
     const findingsListHtml = scan.findings.map(finding => {
-        const reference = finding.reference ? safeHref(finding.reference) : null
+        const referenceLinks = (finding.references ?? [])
+            .map(ref => safeHref(ref))
+            .filter((href): href is string => href !== null)
         return `
         <article class="finding">
             <div class="finding-head">
@@ -48,7 +50,7 @@ export function generateHtmlReport(scan: ScanHistoryItem): string {
                 ${finding.cvssScore !== undefined ? `<div><dt>CVSS Score</dt><dd>${finding.cvssScore}</dd></div>` : ''}
             </dl>
             ${finding.evidence ? `<section class="evidence"><strong>Evidence</strong><pre>${esc(finding.evidence)}</pre></section>` : ''}
-            ${reference ? `<p class="reference"><strong>Reference:</strong> <a href="${reference}" target="_blank" rel="noopener noreferrer">${esc(finding.reference)}</a></p>` : ''}
+            ${referenceLinks.length > 0 ? `<p class="reference"><strong>References:</strong><br>${referenceLinks.map(href => `<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>`).join('<br>')}</p>` : ''}
         </article>`
     }).join('')
 

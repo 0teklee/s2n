@@ -13,6 +13,7 @@ describe('createInitialScanState', () => {
             severity: 'HIGH',
             title: 'Example',
             description: 'Example finding',
+            references: [],
             timestamp: new Date().toISOString(),
         })
         first.selectedPlugins.push('xss')

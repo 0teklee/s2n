@@ -1,121 +1,21 @@
 /**
  * S2N Scanner - Background Service Worker
+ *
+ * Thin message router — all scan session state/lifecycle logic lives in
+ * `scanController.ts`.
  */
 
-import { sendNativeMessage, connectNative, disconnectNative, isNotInstalledError } from '@/lib/nativeMessaging'
-import type { NativeResponse } from '@/lib/nativeMessaging'
-import { createInitialScanState } from '@/types/scan'
-import type { ScanState, Finding, ProgressInfo, ScanSummary } from '@/types/scan'
-import { saveScanHistory } from '@/lib/storage'
-
-let currentScanState: ScanState = createInitialScanState()
-let nativePort: chrome.runtime.Port | null = null
-
-// finding id 추적용 Set — 스캔 시작 시 초기화
-let seenFindingIds = new Set<string>()
+import { sendNativeMessage, isNotInstalledError } from '@/lib/nativeMessaging'
+import { scanController } from './scanController'
 
 function broadcastStateUpdate() {
     chrome.runtime.sendMessage({
         type: 'state_update',
-        state: currentScanState,
+        state: scanController.getState(),
     }).catch(() => { })
 }
 
-function handleNativeMessage(response: NativeResponse) {
-    if (response.status === 'error') {
-        console.error('[Background] Native host error:', response.error)
-        currentScanState.status = 'failed'
-        currentScanState.error = response.error || 'Unknown error from native host'
-        broadcastStateUpdate()
-        disconnectNative(nativePort)
-        nativePort = null
-        return
-    }
-
-    const { action, data } = response
-
-    switch (action) {
-        case 'scan_started':
-            currentScanState.status = 'scanning'
-            currentScanState.error = null
-            currentScanState.progress = { current: 0, total: 100, percent: 0, message: 'Initializing scan...' }
-            broadcastStateUpdate()
-            break
-
-        case 'scan_progress':
-            currentScanState.progress = data as unknown as ProgressInfo
-            broadcastStateUpdate()
-            break
-
-        case 'scan_finding': {
-            const finding = data as unknown as Finding
-            // ✅ 중복 finding 방지: id 또는 상세 필드 조합 키 사용 (url/parameter null 대처)
-            const findingKey = finding.id ??
-                `${finding.title}__${finding.url ?? ''}__${finding.severity}__${finding.parameter ?? ''}`
-
-            if (!seenFindingIds.has(findingKey)) {
-                seenFindingIds.add(findingKey)
-                currentScanState = {
-                    ...currentScanState,
-                    findings: [...currentScanState.findings, finding],
-                }
-                broadcastStateUpdate()
-            }
-            break
-        }
-
-        case 'scan_completed': {
-            currentScanState.status = 'completed'
-            currentScanState.summary = data?.summary as ScanSummary
-            if (currentScanState.progress) {
-                currentScanState.progress.percent = 100
-                currentScanState.progress.message = 'Scan completed'
-            }
-            broadcastStateUpdate()
-            disconnectNative(nativePort)
-            nativePort = null
-
-            const historyItem = {
-                scanId: `scan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                targetUrl: currentScanState.targetUrl,
-                timestamp: new Date().toISOString(),
-                status: currentScanState.status,
-                summary: currentScanState.summary!,
-                findings: currentScanState.findings,
-            }
-            saveScanHistory(historyItem).catch((err) => {
-                console.error('[Background] Failed to save scan history:', err)
-            })
-            break
-        }
-
-        case 'scan_failed':
-        case 'scan_stopped':
-            currentScanState.status = 'failed'
-            currentScanState.error = (data?.error as string) || 'Scan stopped'
-            broadcastStateUpdate()
-            disconnectNative(nativePort)
-            nativePort = null
-            break
-
-        case 'pong':
-        case 'version':
-            break
-
-        default:
-            console.warn('[Background] Unknown action from native host:', action)
-    }
-}
-
-function handleNativeDisconnect(error?: string) {
-    console.warn('[Background] Native port disconnected. Error:', error)
-    if (currentScanState.status === 'scanning' || currentScanState.status === 'validating') {
-        currentScanState.status = isNotInstalledError(error) ? 'not_installed' : 'failed'
-        currentScanState.error = error || 'Lost connection to native host during scan.'
-        broadcastStateUpdate()
-    }
-    nativePort = null
-}
+scanController.subscribe(() => broadcastStateUpdate())
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
@@ -124,10 +24,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             .then((response) => sendResponse({ success: true, data: response }))
             .catch((err) => {
                 const msg = err instanceof Error ? err.message : 'Unknown error'
-                if (isNotInstalledError(msg) && currentScanState.status === 'idle') {
-                    currentScanState.status = 'not_installed'
-                    currentScanState.error = msg
-                    broadcastStateUpdate()
+                if (isNotInstalledError(msg)) {
+                    scanController.markNotInstalledIfIdle(msg)
                 }
                 sendResponse({ success: false, error: msg })
             })
@@ -142,59 +40,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (message.type === 'get_scan_state') {
-        sendResponse(currentScanState)
+        sendResponse(scanController.getState())
         return false
     }
 
     if (message.type === 'start_scan') {
-        if (currentScanState.status === 'scanning') {
-            sendResponse({ success: false, error: 'Scan already in progress' })
-            return false
-        }
-
         const { targetUrl, plugins, acceptRisk } = message.payload
-
-        // ✅ 새 스캔 시작 시 중복 추적 Set 초기화
-        seenFindingIds = new Set<string>()
-
-        currentScanState = {
-            ...createInitialScanState(),
-            status: 'validating',
-            targetUrl,
-            selectedPlugins: plugins,
-        }
-        broadcastStateUpdate()
-
-        if (nativePort) disconnectNative(nativePort)
-        nativePort = connectNative({
-            onMessage: handleNativeMessage,
-            onDisconnect: handleNativeDisconnect,
-        })
-
-        nativePort.postMessage({
-            action: 'start_scan',
-            data: { target_url: targetUrl, plugins, accept_risk: Boolean(acceptRisk) },
-        })
-
-        sendResponse({ success: true })
+        sendResponse(scanController.startScan(targetUrl, plugins, acceptRisk))
         return false
     }
 
     if (message.type === 'stop_scan') {
-        if (nativePort) {
-            nativePort.postMessage({ action: 'stop_scan' })
-            // 연결을 즉시 끊어야 함 — 유지하면 뒤늦게 도착하는 scan_stopped/scan_failed
-            // 메시지가 handleNativeMessage에서 방금 idle로 되돌린 상태를 다시 failed로 덮어씀
-            disconnectNative(nativePort)
-            nativePort = null
-        }
-        // ✅ 스캔 중단 시에도 Set 초기화
-        seenFindingIds = new Set<string>()
-        currentScanState.status = 'idle'
-        currentScanState.progress = null
-        currentScanState.error = null
-        broadcastStateUpdate()
-        sendResponse({ success: true })
+        sendResponse(scanController.stopScan())
         return false
     }
 

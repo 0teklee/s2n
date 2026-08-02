@@ -218,6 +218,7 @@ def _run_scan_thread(
                     "evidence": finding.evidence,
                     "cweId": finding.cwe_id,
                     "cvssScore": finding.cvss_score,
+                    "references": list(finding.references) if finding.references else [],
                     "timestamp": finding.timestamp.isoformat() if finding.timestamp else None,
                 }
             })

@@ -2,13 +2,7 @@ import { useState, useEffect } from 'react'
 import { createInitialScanState } from '@/types/scan'
 import type { ScanState } from '@/types/scan'
 import { isNotInstalledError } from '@/lib/nativeMessaging'
-
-/** background.ts의 sendResponse()가 반환하는 공통 응답 형태 */
-interface ExtensionResponse {
-    success: boolean
-    data?: unknown
-    error?: string
-}
+import { sendRuntimeCommand, type ExtensionResponse } from '@/lib/runtimeMessaging'
 
 export function useScan() {
     const [state, setState] = useState<ScanState>(createInitialScanState)
@@ -44,37 +38,41 @@ export function useScan() {
     }, [])
 
     const startScan = (targetUrl: string, plugins: string[], acceptRisk = false) => {
+        // 짧은 로컬 낙관적 상태 — background의 상태 브로드캐스트가 항상 최종 권위를 가진다.
         setState({
             ...createInitialScanState(),
             status: 'validating',
             targetUrl,
             selectedPlugins: plugins,
         })
-        chrome.runtime.sendMessage({ type: 'start_scan', payload: { targetUrl, plugins, acceptRisk } }, response => {
-            if (chrome.runtime.lastError) {
-                setState(prev => ({ ...prev, status: 'failed', error: chrome.runtime.lastError?.message ?? 'Unable to start scan' }))
-            } else if (!response?.success) {
-                setState(prev => ({ ...prev, status: 'failed', error: response?.error ?? 'Unable to start scan' }))
-            }
-        })
+        sendRuntimeCommand({ type: 'start_scan', payload: { targetUrl, plugins, acceptRisk } })
+            .catch((err: unknown) => {
+                setState(prev => ({ ...prev, status: 'failed', error: err instanceof Error ? err.message : 'Unable to start scan' }))
+            })
     }
 
     const stopScan = () => {
-        setState(createInitialScanState())
-        chrome.runtime.sendMessage({ type: 'stop_scan' })
+        sendRuntimeCommand({ type: 'stop_scan' })
+            .then(() => setState(createInitialScanState()))
+            .catch((err: unknown) => {
+                console.error('[useScan] stop_scan failed:', err)
+                // 배경 세션이 이미 없거나 응답이 없어도 UI가 멈춰있지 않도록 로컬 상태는 초기화한다.
+                setState(createInitialScanState())
+            })
     }
 
     /** s2n 설치 후 연결을 재확인합니다. 성공 시 idle로 복귀. */
     const checkInstallation = () => {
-        chrome.runtime.sendMessage({ type: 'ping' }, (response: ExtensionResponse) => {
-            if (response?.success) {
-                setState(createInitialScanState())
-            } else if (isNotInstalledError(response?.error)) {
-                setState(prev => ({ ...prev, status: 'not_installed', error: response.error ?? null }))
-            } else {
-                setState(prev => ({ ...prev, status: 'failed', error: response?.error ?? 'Connection failed' }))
-            }
-        })
+        sendRuntimeCommand({ type: 'ping' })
+            .then(() => setState(createInitialScanState()))
+            .catch((err: unknown) => {
+                const message = err instanceof Error ? err.message : 'Connection failed'
+                if (isNotInstalledError(message)) {
+                    setState(prev => ({ ...prev, status: 'not_installed', error: message }))
+                } else {
+                    setState(prev => ({ ...prev, status: 'failed', error: message }))
+                }
+            })
     }
 
     return { state, startScan, stopScan, checkInstallation }
