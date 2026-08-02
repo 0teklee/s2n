@@ -196,6 +196,16 @@ def scan(
         except ImportError:
             pass  # s2nagent 미설치 시 무시
 
+    # AI 모드 활성화 시: s2n_agent를 plugin_list 맨 앞에 추가
+    # → build_scan_config의 plugin_configs에 포함되어 scan_engine allowed_plugins 필터 통과
+    if ai_mode != "off":
+        try:
+            from s2nagent.constants import AGENT_PLUGIN_NAME
+            if AGENT_PLUGIN_NAME not in plugin_list:
+                plugin_list = [AGENT_PLUGIN_NAME] + plugin_list
+        except ImportError:
+            pass  # s2nagent 미설치 시 무시
+
     # CLIArguments 구성
     args = CLIArguments(
         url=url,
