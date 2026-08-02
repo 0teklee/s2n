@@ -178,6 +178,16 @@ def scan(
             console.print("[red]Error: No plugins discovered. Check your installation.[/red]")
             sys.exit(1)
 
+    # AI 모드 활성화 시: s2n_agent를 plugin_list 맨 앞에 추가
+    # → build_scan_config의 plugin_configs에 포함되어 scan_engine allowed_plugins 필터 통과
+    if ai_mode != "off":
+        try:
+            from s2nagent.constants import AGENT_PLUGIN_NAME
+            if AGENT_PLUGIN_NAME not in plugin_list:
+                plugin_list = [AGENT_PLUGIN_NAME] + plugin_list
+        except ImportError:
+            pass  # s2nagent 미설치 시 무시
+
     # CLIArguments 구성
     args = CLIArguments(
         url=url,
@@ -272,28 +282,47 @@ def scan(
             refresh=True,
         )
 
-    # AI 모드 활성화 시 S2NAgentPlugin 주입
-    extra_plugins = []
+    # AI 모드 활성화 시 S2NAgentPlugin 주입 + 정규 플러그인 인스턴스와 합산
+    # scan_engine allowed_plugins 필터를 통과하려면 plugins= 리스트에
+    # agent_plugin AND 정규 플러그인 인스턴스를 함께 넘겨야 한다.
+    all_plugins = None   # None → scan_engine이 자체 discover_plugins() 수행
+    on_finding_cb = None
     if ai_mode != "off":
         try:
             from s2nagent.plugins.s2n_agent_plugin import S2NAgentPlugin
+            from s2nagent.constants import AGENT_PLUGIN_NAME
+
             agent_plugin = S2NAgentPlugin(
                 ai_mode=ai_mode,
                 ai_model=ai_model,
                 ai_endpoint=ai_endpoint,
             )
-            extra_plugins = [agent_plugin]
+            on_finding_cb = agent_plugin.on_finding
+
+            # 정규 플러그인 인스턴스 로드 (s2n_agent 제외)
+            _regular_ids = set(plugin_list) - {AGENT_PLUGIN_NAME}
+            _meta = discover_plugins(include_instances=True)
+            _regular_instances = [
+                m["instance"] for m in _meta if m["id"] in _regular_ids
+            ]
+            # Agent가 항상 첫 번째로 실행되도록 prepend
+            all_plugins = [agent_plugin] + _regular_instances
+
             console.print(f"[cyan]🤖 S2N-Agent 활성화: mode={ai_mode}, model={ai_model}[/cyan]")
         except ImportError:
-            console.print("[yellow]⚠️  s2nagent 패키지 미설치 — AI 모드 비활성화. `pip install s2n-agent` 실행 필요.[/yellow]")
+            console.print(
+                "[yellow]⚠️  s2nagent 패키지 미설치 — AI 모드 비활성화. "
+                "`pip install s2n-agent` 실행 필요.[/yellow]"
+            )
 
     scanner = Scanner(
         config=config,
         scan_context=scan_ctx,
-        plugins=extra_plugins or None,
+        plugins=all_plugins,   # None → 정상 discover / list → AI+정규 플러그인 함께 실행
         auth_adapter=auth_adapter,
         auth_credentials=auth_credentials,
         logger=logger,
+        on_finding=on_finding_cb,
         on_progress=on_progress,
     )
 
