@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import urljoin
 from uuid import uuid4
 
 from s2n.s2nscanner.clients.http_client import HttpClient
 from s2n.s2nscanner.interfaces import (
     Finding,
+    PluginConfig,
     PluginContext,
     PluginError,
     PluginResult,
@@ -30,9 +31,10 @@ class SoftBruteForcePlugin:
     name = "soft_brute_force"
     description = "Checks for rate limiting and default credentials"
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config or {}
-        self.rate_limit_attempts = int(self.config.get("rate_limit_attempts", RATE_LIMIT_ATTEMPTS))
+    def __init__(self, config: Optional[PluginConfig] = None):
+        self.config = config
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.rate_limit_attempts = int(custom_params.get("rate_limit_attempts", RATE_LIMIT_ATTEMPTS))
 
     def run(self, plugin_context: PluginContext) -> PluginResult:
         start_time = datetime.utcnow()
@@ -221,5 +223,5 @@ class SoftBruteForcePlugin:
         return findings, requests_sent
 
 
-def main(config: Optional[Dict[str, Any]] = None) -> SoftBruteForcePlugin:
+def main(config: Optional[PluginConfig] = None) -> SoftBruteForcePlugin:
     return SoftBruteForcePlugin(config)

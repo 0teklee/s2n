@@ -1,9 +1,9 @@
 from datetime import datetime
-from typing import List, Any, Optional, Dict
+from typing import Dict, List, Optional
 
 # S2N 인터페이스 및 데이터 구조 임포트
 from s2n.s2nscanner.interfaces import (
-    PluginContext, PluginResult, PluginStatus,
+    PluginConfig, PluginContext, PluginResult, PluginStatus,
     Finding, Severity, Confidence, PluginError
 )
 
@@ -35,11 +35,11 @@ class BruteForcePlugin:
     description = "Checks whether common username and password combinations are accepted"
 
     # config를 받을 수 있도록 __init__ 메서드 추가
-    def __init__(self, config: Any = None):
-        # config 타입을 PluginConfig 대신 Any로 받아 유연성을 확보합니다.
+    def __init__(self, config: Optional[PluginConfig] = None):
         self.config = config
-        # depth: config에서 가져오거나 기본값 2 사용 (참고용, brute force는 crawler 미사용)
-        self.depth = int(getattr(config, "depth", 2)) if config else 2
+        # depth: custom_params에서 가져오거나 기본값 2 사용 (참고용, brute force는 crawler 미사용)
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.depth = int(custom_params.get("depth", 2))
 
     def _request_user_confirmation(self, plugin_context) -> bool:
         """
@@ -205,5 +205,5 @@ class BruteForcePlugin:
 
 
 # main 함수 사용
-def main(config=None):
+def main(config: Optional[PluginConfig] = None):
     return BruteForcePlugin(config)

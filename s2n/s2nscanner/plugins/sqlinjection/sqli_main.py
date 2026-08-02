@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 from s2n.s2nscanner.interfaces import (
     Finding,
+    PluginConfig,
     PluginContext,
     PluginError,
     PluginResult,
@@ -19,10 +20,11 @@ class SQLInjectionPlugin:
     name = "sqlinjection"
     description = "SQL Injection 취약점을 스캐너"
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config or {}
-        self.timeout = int(self.config.get("timeout", 5))
-        self.depth = int(self.config.get("depth", 2))
+    def __init__(self, config: Optional[PluginConfig] = None):
+        self.config = config
+        self.timeout = int(getattr(config, "timeout", 5) or 5)
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.depth = int(custom_params.get("depth", 2))
 
     def run(self, plugin_context: PluginContext) -> PluginResult:
         start_dt = datetime.now()
@@ -74,5 +76,5 @@ class SQLInjectionPlugin:
         )
 
 
-def main(config=None):
+def main(config: Optional[PluginConfig] = None):
     return SQLInjectionPlugin(config)

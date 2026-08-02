@@ -18,7 +18,7 @@ def discover_plugins(include_instances: bool = False) -> List[Dict[str, Any]]:
         return []
 
     discovered = []
-    excluded_modules = {"helper", "discovery", "registry"}
+    excluded_modules = {"helper", "discovery", "registry", "base"}
     
     # pkgutil expects the filesystem path of the package
     if not hasattr(package, "__path__"):

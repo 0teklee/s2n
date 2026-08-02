@@ -230,6 +230,38 @@ def find_upload_form_recursive(
     return None, target_url
 
 
+def _attempt_delete_uploaded_file(
+    http_client, url: str, test_content: str, stats: dict
+) -> bool:
+    """SAFETY-01: 업로드에 성공한 테스트 파일이 스캔 종료 후에도 웹셸처럼 서버에
+    잔류하지 않도록 best-effort로 삭제를 시도한다. 대부분의 대상 서버는 임의 DELETE를
+    지원하지 않으므로 실패는 예상된 결과이며, 호출자가 성공 여부를 Finding에 기록해
+    수동 정리를 안내할 수 있도록 bool을 반환한다.
+    """
+    try:
+        # HttpClientProtocol은 get/post 편의 메서드만 노출하므로 범용 request()를 사용한다.
+        resp = http_client.request("DELETE", url, timeout=10)
+        stats["requests_sent"] += 1
+    except Exception as exc:
+        logger.warning("Cleanup DELETE failed for %s: %s", url, exc)
+        return False
+
+    if resp.status_code not in (200, 202, 204):
+        return False
+
+    try:
+        verify = http_client.get(url, timeout=10)
+        stats["requests_sent"] += 1
+        removed = not (verify.status_code == 200 and test_content in verify.text)
+    except Exception:
+        # DELETE 자체는 성공(2xx) 응답을 받았으므로 성공으로 간주
+        removed = True
+
+    if removed:
+        logger.info("[FILE-UPLOAD] Cleanup confirmed removed: %s", url)
+    return removed
+
+
 def upload_test_files(
     http_client,
     action_url: str,
@@ -300,6 +332,17 @@ def upload_test_files(
                             else Severity.MEDIUM
                         )
 
+                        # SAFETY-01: 업로드된 테스트 파일이 웹셸처럼 서버에 잔류하지 않도록
+                        # 삭제를 시도하고, 결과를 Finding에 명시해 필요 시 수동 정리를 안내한다.
+                        cleanup_confirmed = _attempt_delete_uploaded_file(
+                            http_client, url, test_content, stats
+                        )
+                        cleanup_note = (
+                            "S2N automatically deleted the uploaded test file and confirmed its removal."
+                            if cleanup_confirmed
+                            else f"S2N could not confirm automatic removal — manually verify and delete {url} from the server."
+                        )
+
                         findings.append(
                             Finding(
                                 id=f"file-upload-{uuid.uuid4()}",
@@ -307,11 +350,12 @@ def upload_test_files(
                                 severity=severity,
                                 title="File Upload Vulnerability Detected",
                                 description=f"Arbitrary file upload is possible. A test file ({filename}) was uploaded and is accessible at {url}. "
-                                f"This could allow attackers to upload malicious files.",
+                                f"This could allow attackers to upload malicious files. {cleanup_note}",
                                 url=url,
-                                evidence=f"Test marker '{test_content}' found in response from {url}",
+                                evidence=f"Test marker '{test_content}' found in response from {url}. {cleanup_note}",
                                 timestamp=datetime.now(),
-                                remediation="Implement proper file type validation, restrict upload directories, and sanitize file names.",
+                                remediation="Implement proper file type validation, restrict upload directories, sanitize file names, "
+                                f"and ensure orphaned test/malicious uploads are removed. {cleanup_note}",
                             )
                         )
                         break

@@ -33,9 +33,10 @@ class FileUploadPlugin:
     description = "파일 업로드 취약점을 탐지합니다."
 
     def __init__(self, config: Optional[PluginConfig] = None):
-        self.config = config or {}
-        # depth: config에서 가져오거나 기본값 2 사용
-        self.depth = int(getattr(self.config, "depth", 2))
+        self.config = config
+        # depth: custom_params에서 가져오거나 기본값 2 사용
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.depth = int(custom_params.get("depth", 2))
 
     def run(self, plugin_context: PluginContext) -> PluginResult:
         start_time = datetime.now()
