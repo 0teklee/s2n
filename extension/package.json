@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "build:zip": "npm run build && cd dist && zip -r ../s2n-extension.zip .",
     "lint": "eslint .",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -39,6 +40,7 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "vitest": "^3.2.4"
   }
 }

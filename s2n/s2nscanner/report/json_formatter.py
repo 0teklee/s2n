@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 from s2n.s2nscanner.interfaces import ScanReport
 from s2n.s2nscanner.report.base import ReportFormatter
+from s2n.s2nscanner.report.io_utils import write_text_file
 
 def _serialize_datetime(obj: Any) -> str:
     """datetime 객체를 ISO8601 형식 문자열로 변환 : datetime 전용 직렬화 함수"""
@@ -31,7 +32,7 @@ class JSONFormatter(ReportFormatter):
                 indent=2,
                 default=_serialize_datetime,
             )
-        
+
         return json.dumps(
             report_dict,
             ensure_ascii=False,
@@ -40,6 +41,4 @@ class JSONFormatter(ReportFormatter):
 
     def save(self, report: ScanReport, path: Path):
         json_str = self.format(report)
-        path = Path(path)
-        path.write_text(json_str, encoding="utf-8")
-        
+        write_text_file(Path(path), json_str)

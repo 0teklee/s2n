@@ -1,11 +1,17 @@
 # ScanReport -> HTML 변환 + 저장
 
 from __future__ import annotations
+from html import escape
 from pathlib import Path
 from typing import List
 
 from s2n.s2nscanner.interfaces import ScanReport, Severity
 from s2n.s2nscanner.report.base import ReportFormatter
+from s2n.s2nscanner.report.io_utils import write_text_file
+
+
+def _esc(value: object) -> str:
+    return escape(str(value), quote=True)
 
 class HTMLFormatter(ReportFormatter):
     def __init__(self):
@@ -46,18 +52,18 @@ class HTMLFormatter(ReportFormatter):
     )
 
         # 제목
-        html_parts.append(f"<h1>S2N Scanner Report</h1>")
+        html_parts.append("<h1>S2N Scanner Report</h1>")
 
         # 기본 정보
         html_parts.append("<div class='summary'>")
         html_parts.append(
-            f"<div class='summary-item'><strong>Target URL:</strong> {report.target_url}</div>"
+            f"<div class='summary-item'><strong>Target URL:</strong> {_esc(report.target_url)}</div>"
         )
         html_parts.append(
-            f"<div class='summary-item'><strong>Scan ID:</strong> {report.scan_id}</div>"
+            f"<div class='summary-item'><strong>Scan ID:</strong> {_esc(report.scan_id)}</div>"
         )
         html_parts.append(
-            f"<div class='summary-item'><strong>Scanner Version:</strong> {report.scanner_version}</div>"
+            f"<div class='summary-item'><strong>Scanner Version:</strong> {_esc(report.scanner_version)}</div>"
         )
         html_parts.append(
             f"<div class='summary-item'><strong>Start Time:</strong> {report.start_time.isoformat()}</div>"
@@ -114,7 +120,7 @@ class HTMLFormatter(ReportFormatter):
 
         for plugin_result in report.plugin_results:
             if plugin_result.findings:
-                html_parts.append(f"<h3>Plugin: {plugin_result.plugin_name}</h3>")
+                html_parts.append(f"<h3>Plugin: {_esc(plugin_result.plugin_name)}</h3>")
                 html_parts.append(
                     f"<p><strong>Status:</strong> {plugin_result.status.value}</p>"
                 )
@@ -124,40 +130,40 @@ class HTMLFormatter(ReportFormatter):
 
                 for finding in plugin_result.findings:
                     severity_class = f"severity-{finding.severity.value.lower()}"
-                    html_parts.append(f"<div class='finding'>")
+                    html_parts.append("<div class='finding'>")
                     html_parts.append(
-                        f"<h4 class='{severity_class}'>[{finding.severity.value}] {finding.title}</h4>"
+                        f"<h4 class='{severity_class}'>[{finding.severity.value}] {_esc(finding.title)}</h4>"
                     )
-                    html_parts.append(f"<p><strong>ID:</strong> {finding.id}</p>")
+                    html_parts.append(f"<p><strong>ID:</strong> {_esc(finding.id)}</p>")
                     if finding.url:
-                        html_parts.append(f"<p><strong>URL:</strong> {finding.url}</p>")
+                        html_parts.append(f"<p><strong>URL:</strong> {_esc(finding.url)}</p>")
                     if finding.parameter:
                         html_parts.append(
-                            f"<p><strong>Parameter:</strong> {finding.parameter}</p>"
+                            f"<p><strong>Parameter:</strong> {_esc(finding.parameter)}</p>"
                         )
                     if finding.method:
                         html_parts.append(
-                            f"<p><strong>Method:</strong> {finding.method}</p>"
+                            f"<p><strong>Method:</strong> {_esc(finding.method)}</p>"
                         )
                     if finding.payload:
                         html_parts.append(
-                            f"<p><strong>Payload:</strong> <code>{finding.payload}</code></p>"
+                            f"<p><strong>Payload:</strong> <code>{_esc(finding.payload)}</code></p>"
                         )
                     if finding.description:
                         html_parts.append(
-                            f"<p><strong>Description:</strong> {finding.description}</p>"
+                            f"<p><strong>Description:</strong> {_esc(finding.description)}</p>"
                         )
                     if finding.evidence:
                         html_parts.append(
-                            f"<p><strong>Evidence:</strong> {finding.evidence}</p>"
+                            f"<p><strong>Evidence:</strong> {_esc(finding.evidence)}</p>"
                         )
                     if finding.remediation:
                         html_parts.append(
-                            f"<p><strong>Remediation:</strong> {finding.remediation}</p>"
+                            f"<p><strong>Remediation:</strong> {_esc(finding.remediation)}</p>"
                         )
                     if finding.cwe_id:
                         html_parts.append(
-                            f"<p><strong>CWE ID:</strong> {finding.cwe_id}</p>"
+                            f"<p><strong>CWE ID:</strong> {_esc(finding.cwe_id)}</p>"
                         )
                     if finding.cvss_score:
                         html_parts.append(
@@ -181,5 +187,4 @@ class HTMLFormatter(ReportFormatter):
 
     def save(self, report: ScanReport, path: Path):
         html_str = self.format(report)
-        path = Path(path)
-        path.write_text(html_str, encoding="utf-8")
+        write_text_file(Path(path), html_str)

@@ -24,9 +24,7 @@ def logger():
     return logging.getLogger("test_logger")
 
 
-@patch("s2n.s2nscanner.plugins.autobot.autobot_behaviors.urljoin", return_value="http://target.com/page")
-@patch("s2n.s2nscanner.plugins.autobot.autobot_behaviors.urlparse")
-def test_rapid_crawl_behavior(mock_urlparse, mock_urljoin, mock_driver, logger):
+def test_rapid_crawl_behavior(mock_driver, logger):
     behavior = RapidCrawlBehavior()
     
     # 1. Blocked

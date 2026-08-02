@@ -4,9 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "s2n"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 version = "0.3.2"
-description = "Plugin-based web vulnerabillity scanner library"
+description = "Plugin-based web vulnerability scanner library"
 
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,6 +21,8 @@ dependencies = [
     "webdriver-manager",
     "click>=8.0",
     "rich>=13.0",
+    "PyJWT>=2.8.0",
+    "cryptography>=41.0.0",
 ]
 
 [project.urls]
@@ -36,4 +39,38 @@ s2n = "s2n.s2nscanner.cli.runner:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tests*"]
+exclude = ["test*", "tests*"]
+
+[tool.setuptools]
+py-modules = ["native_host"]
+
+[tool.setuptools.package-data]
+"s2n.s2nscanner.plugins.xss" = ["xss_payloads.json"]
+"s2n.s2nscanner.plugins.sqlinjection" = ["sqli_payloads.json"]
+"s2n.s2nscanner.plugins.jwt" = ["weak_secrets.txt"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q"
+testpaths = ["test"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+    "e2e: end-to-end tests",
+    "slow: long-running tests",
+    "dvwa: tests requiring a DVWA server",
+]
+
+[tool.ruff]
+target-version = "py39"
+exclude = [".envs", "extension", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"s2n/s2nscanner/plugins/csrf/csrf_constants.py" = ["F401"]

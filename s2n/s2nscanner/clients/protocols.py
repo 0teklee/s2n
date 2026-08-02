@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Protocol
+from typing import Any, Callable, Dict, Optional, Protocol, Tuple, Union
 
 # ----------------------------------------------------------
 # HTTP Client Protocol + Config
@@ -35,11 +35,14 @@ class HttpClientProtocol(Protocol):
 class HttpClientConfig:
     retry: int = 1
     backoff: float = 0.2
-    timeout: Optional[float] = None
+    timeout: Optional[Union[float, Tuple[float, float]]] = None
     verify_ssl: bool = True
     base_headers: Dict[str, str] = field(default_factory=dict)
     allow_redirects: bool = True
     base_url: Optional[str] = None
+    proxy: Optional[str] = None
+    rate_limit: Optional[float] = None
+    max_connections: int = 100
 
 # ----------------------------------------------------------
 # Browser Client Protocol + Config

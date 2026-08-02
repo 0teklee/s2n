@@ -177,6 +177,14 @@ def scan(
         if not plugin_list:
             console.print("[red]Error: No plugins discovered. Check your installation.[/red]")
             sys.exit(1)
+    else:
+        available_plugins = {item["id"] for item in discover_plugins()}
+        unknown_plugins = sorted(set(plugin_list) - available_plugins)
+        if unknown_plugins:
+            raise click.ClickException(
+                f"Unknown plugins: {', '.join(unknown_plugins)}. "
+                "Run 's2n list-plugins' to see available plugins."
+            )
 
     # AI 모드 활성화 시: s2n_agent를 plugin_list 맨 앞에 추가
     # → build_scan_config의 plugin_configs에 포함되어 scan_engine allowed_plugins 필터 통과
@@ -437,6 +445,7 @@ def scan(
         logger.info("Scan report successfully generated.")
     except Exception as exc:
         logger.exception("Failed to output report: %s", exc)
+        raise click.ClickException(f"Failed to output report: {exc}") from exc
 
 # list-plugins 명령어
 @cli.command("list-plugins")

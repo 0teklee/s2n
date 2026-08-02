@@ -179,7 +179,7 @@ def test_scan_with_dvwa_auth(cli_runner, monkeypatch, fake_common):
     assert adapter.auth_called_with == [("admin", "password")]
 
 
-def test_scan_output_report_error_does_not_crash(cli_runner, monkeypatch, fake_common):
+def test_scan_output_report_error_returns_failure(cli_runner, monkeypatch, fake_common):
     def exploding_output_report(report, output_config):
         raise RuntimeError("boom")
 
@@ -197,4 +197,5 @@ def test_scan_output_report_error_does_not_crash(cli_runner, monkeypatch, fake_c
         ],
     )
 
-    assert result.exit_code == 0, f"CLI should not crash: {result.output}"
+    assert result.exit_code == 1
+    assert "Failed to output report: boom" in result.output

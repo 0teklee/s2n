@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from s2n.s2nscanner.interfaces import ScanReport, OutputFormat
+from s2n.s2nscanner.interfaces import ScanReport
 
 class ReportFormatter(ABC):
     @abstractmethod

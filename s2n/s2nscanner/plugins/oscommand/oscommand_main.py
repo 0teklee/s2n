@@ -102,6 +102,11 @@ class OSCommandPlugin:
         urls_scanned = 0
 
         try:
+            plugin_config = getattr(plugin_context, "plugin_config", None)
+            custom = getattr(plugin_config, "custom_params", {}) or {}
+            self.timeout = getattr(plugin_config, "timeout", self.timeout)
+            self.payloads = custom.get("payloads", self.payloads)
+            self.patterns = custom.get("patterns", self.patterns)
             client = self._resolve_client(plugin_context)
             target_url = self._resolve_target_url(plugin_context)
             depth = self._resolve_depth(plugin_context)
