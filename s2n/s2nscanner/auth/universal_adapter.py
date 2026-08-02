@@ -10,7 +10,7 @@ import json
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 
 from s2n.s2nscanner.clients.http_client import HttpClient
@@ -174,8 +174,12 @@ class UniversalAuthAdapter:
                 return test_url
 
         # 4) base_url 페이지의 링크에서 login 키워드 찾기 (step 2의 HTML 재사용)
+        base_netloc = urlparse(self.base_url).netloc
         for m in re.finditer(r'href=["\']([^"\']*login[^"\']*)["\']', base_html, re.I):
             candidate = urljoin(self.base_url, m.group(1))
+            if urlparse(candidate).netloc != base_netloc:
+                self.logger.warning("오프사이트 로그인 링크 무시: %s", candidate)
+                continue
             r2 = self._client.get(candidate, timeout=AUTH_TIMEOUT)
             page = self._classifier.classify_page(candidate, r2.text or "")
             if page.has_login_form:

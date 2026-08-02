@@ -516,6 +516,11 @@ class Scanner:
         is_result_plugin_result = isinstance(raw_result, PluginResult)
 
         if not is_result_plugin_result and hasattr(plugin, "post_scan"):
+            pre_post_scan_findings = (
+                self._normalize_findings(plugin_name, raw_result, self.config.target_url)
+                if raw_result is not None
+                else []
+            )
             try:
                 self.logger.info(f"▶️ {plugin_name}.post_scan() started")
                 final_result = plugin.post_scan(plugin_context)
@@ -523,9 +528,12 @@ class Scanner:
 
                 if not isinstance(final_result, PluginResult):
                     raise TypeError(f"post_scan() must return a PluginResult instance, got {type(final_result).__name__}")
-                
+
+                if pre_post_scan_findings:
+                    final_result.findings = list(pre_post_scan_findings) + list(final_result.findings or [])
+
                 raw_result = final_result
-            
+
             except Exception as exc:
                 self.logger.exception(f"💣 Exception during {plugin_name}.post_scan(): {exc}")
                 raw_result = self._plugin_failure_result(plugin_name, exc, start_time)
