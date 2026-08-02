@@ -77,12 +77,14 @@ export const AVAILABLE_PLUGINS = [
 ]
 
 /** 초기 스캔 상태 */
-export const INITIAL_SCAN_STATE: ScanState = {
-    status: 'idle',
-    targetUrl: '',
-    selectedPlugins: [],
-    progress: null,
-    findings: [],
-    summary: null,
-    error: null,
+export function createInitialScanState(): ScanState {
+    return {
+        status: 'idle',
+        targetUrl: '',
+        selectedPlugins: [],
+        progress: null,
+        findings: [],
+        summary: null,
+        error: null,
+    }
 }

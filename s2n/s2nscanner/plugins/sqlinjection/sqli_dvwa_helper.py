@@ -1,8 +1,6 @@
 # sqli_dvwa_helper.py
 
-import requests
 from urllib.parse import urlparse, parse_qs, urlunparse
-from bs4 import BeautifulSoup
 
 # =========================================================
 # 유연한 모듈 임포트 처리

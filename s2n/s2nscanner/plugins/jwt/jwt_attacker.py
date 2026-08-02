@@ -118,7 +118,8 @@ class JWTAttacker:
         for none_token in none_tokens:
             # alg 변형 추출 (헤더 파트에서)
             try:
-                import base64, json as _json
+                import base64
+                import json as _json
                 header_part = none_token.split(".")[0]
                 pad = (4 - len(header_part) % 4) % 4
                 alg_variant = _json.loads(

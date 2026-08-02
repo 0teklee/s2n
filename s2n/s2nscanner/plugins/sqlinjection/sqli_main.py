@@ -32,6 +32,8 @@ class SQLInjectionPlugin:
         client = resolve_client(self, plugin_context)
         depth = resolve_depth(self, plugin_context)
         target_url = resolve_target_url(self, plugin_context)
+        plugin_config = getattr(plugin_context, "plugin_config", None)
+        timeout = getattr(plugin_config, "timeout", self.timeout)
         
         # Logger setup
         log = plugin_context.logger or logger
@@ -43,7 +45,7 @@ class SQLInjectionPlugin:
                 http_client=client,
                 plugin_context=plugin_context,
                 depth=depth,
-                timeout=self.timeout,
+                timeout=timeout,
             )
             findings.extend(scan_result)
 

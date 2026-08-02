@@ -6,11 +6,13 @@ HTTP Client (requests 기반)
 
 from s2n.s2nscanner.logger import get_logger
 
+import threading
 import time
 from typing import Optional
 
 import requests
 from requests import Response, Session, RequestException
+from requests.adapters import HTTPAdapter
 
 from .protocols import HttpClientProtocol, HttpClientConfig
 
@@ -30,9 +32,20 @@ class RequestsHttpClient(HttpClientProtocol):
     ):
         self.config = config or HttpClientConfig()
         self.s = session or requests.Session()
+        self._rate_lock = threading.Lock()
+        self._last_request_at = 0.0
 
         if self.config.base_headers:
             self.s.headers.update(self.config.base_headers)
+        if self.config.proxy:
+            self.s.proxies.update({"http": self.config.proxy, "https": self.config.proxy})
+        if session is None:
+            adapter = HTTPAdapter(
+                pool_connections=self.config.max_connections,
+                pool_maxsize=self.config.max_connections,
+            )
+            self.s.mount("http://", adapter)
+            self.s.mount("https://", adapter)
 
         # HTTP 로그 훅 (엔진에서 주입)
         self.log_hook = None
@@ -50,13 +63,10 @@ class RequestsHttpClient(HttpClientProtocol):
         for attempt in range(retry + 1):
             try:
                 merged_kwargs = dict(**kwargs)
-                merged_kwargs.update(
-                    {
-                        "timeout": self.config.timeout,
-                        "verify": self.config.verify_ssl,
-                        "allow_redirects": self.config.allow_redirects,
-                    }
-                )
+                merged_kwargs.setdefault("timeout", self.config.timeout)
+                merged_kwargs.setdefault("verify", self.config.verify_ssl)
+                merged_kwargs.setdefault("allow_redirects", self.config.allow_redirects)
+                self._apply_rate_limit()
                 res = self.s.request(method=method, url=url, **merged_kwargs)
 
                 if self.log_hook:
@@ -70,6 +80,19 @@ class RequestsHttpClient(HttpClientProtocol):
                 time.sleep(backoff * (2**attempt))
 
         raise RuntimeError("HTTP request failed unexpectedly")  # 미도달 보호
+
+    def _apply_rate_limit(self) -> None:
+        requests_per_second = self.config.rate_limit
+        if not requests_per_second or requests_per_second <= 0:
+            return
+
+        minimum_interval = 1.0 / requests_per_second
+        with self._rate_lock:
+            now = time.monotonic()
+            delay = minimum_interval - (now - self._last_request_at)
+            if delay > 0:
+                time.sleep(delay)
+            self._last_request_at = time.monotonic()
 
     # Public API
     def request(self, method: str, url: str, **kwargs) -> Response:

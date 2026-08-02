@@ -6,21 +6,18 @@ import type { ScanHistoryItem } from '@/types/scan'
 import { generateHtmlReport } from './report-template'
 
 /**
- * 스캔 결과를 JSON 파일로 내보내기
+ * Blob을 파일로 다운로드 트리거
  */
-export function exportFindingsToJson(scan: ScanHistoryItem) {
-    const dataStr = JSON.stringify(scan, null, 2)
-    const blob = new Blob([dataStr], { type: 'application/json' })
+function downloadBlob(content: string, mimeType: string, filename: string) {
+    const blob = new Blob([content], { type: mimeType })
     const url = URL.createObjectURL(blob)
-    
-    // 다운로드 트리거
+
     const a = document.createElement('a')
     a.href = url
-    a.download = `s2n_report_${scan.scanId}.json`
+    a.download = filename
     document.body.appendChild(a)
     a.click()
-    
-    // 정리
+
     setTimeout(() => {
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
@@ -28,23 +25,17 @@ export function exportFindingsToJson(scan: ScanHistoryItem) {
 }
 
 /**
+ * 스캔 결과를 JSON 파일로 내보내기
+ */
+export function exportFindingsToJson(scan: ScanHistoryItem) {
+    const dataStr = JSON.stringify(scan, null, 2)
+    downloadBlob(dataStr, 'application/json', `s2n_report_${scan.scanId}.json`)
+}
+
+/**
  * 스캔 결과를 HTML 리포트 문서로 내보내기
  */
 export function exportFindingsToHtml(scan: ScanHistoryItem) {
     const htmlStr = generateHtmlReport(scan)
-    const blob = new Blob([htmlStr], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    
-    // 다운로드 트리거
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `s2n_report_${scan.scanId}.html`
-    document.body.appendChild(a)
-    a.click()
-    
-    // 정리
-    setTimeout(() => {
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-    }, 100)
+    downloadBlob(htmlStr, 'text/html', `s2n_report_${scan.scanId}.html`)
 }

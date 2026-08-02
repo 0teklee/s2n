@@ -13,6 +13,15 @@ import io
 
 from s2n.s2nscanner.interfaces import ScanReport
 from s2n.s2nscanner.report.base import ReportFormatter
+from s2n.s2nscanner.report.io_utils import write_text_file
+
+
+def _safe_cell(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + value
+    return value
 
 
 class CSVFormatter(ReportFormatter):
@@ -57,16 +66,16 @@ class CSVFormatter(ReportFormatter):
             for f in plugin_result.findings:
                 writer.writerow(
                     [
-                        f.id,
-                        f.plugin,
+                        _safe_cell(f.id),
+                        _safe_cell(f.plugin),
                         f.severity.value,
-                        f.title,
-                        f.url or "",
-                        f.parameter or "",
-                        f.method or "",
-                        f.payload or "",
-                        f.evidence or "",
-                        f.cwe_id or "",
+                        _safe_cell(f.title),
+                        _safe_cell(f.url or ""),
+                        _safe_cell(f.parameter or ""),
+                        _safe_cell(f.method or ""),
+                        _safe_cell(f.payload or ""),
+                        _safe_cell(f.evidence or ""),
+                        _safe_cell(f.cwe_id or ""),
                         f.cvss_score or "",
                         f.confidence.value,
                         f.timestamp.isoformat() if f.timestamp else "",
@@ -77,7 +86,5 @@ class CSVFormatter(ReportFormatter):
 
     def save(self, report: ScanReport, path: Path):
         """CSV 파일로 저장"""
-        path = Path(path)
         csv_str = self.format(report)
-        path.write_text(csv_str, encoding="utf-8")
-        
+        write_text_file(Path(path), csv_str)

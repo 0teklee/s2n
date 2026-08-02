@@ -36,6 +36,11 @@ class SoftBruteForcePlugin:
 
     def run(self, plugin_context: PluginContext) -> PluginResult:
         start_time = datetime.utcnow()
+        plugin_config = getattr(plugin_context, "plugin_config", None)
+        custom = getattr(plugin_config, "custom_params", {}) or {}
+        self.rate_limit_attempts = int(
+            custom.get("rate_limit_attempts", self.rate_limit_attempts)
+        )
         findings: List[Finding] = []
         requests_sent = 0
         

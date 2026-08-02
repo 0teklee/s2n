@@ -28,13 +28,10 @@ jobs:
       
       - name: Install project dependencies
         run: |
-          # Install the package in editable mode with all dependencies
-          pip install -e .
-      
-      - name: Install test dependencies
-        run: |
-          # Install pytest and responses for HTTP mocking
-          pip install pytest responses pytest-cov
+          pip install -e ".[dev]"
+
+      - name: Run Python lint
+        run: ruff check s2n native_host.py
 
       - name: Run tests
         run: |
@@ -50,8 +47,33 @@ jobs:
           name: codecov-umbrella
           fail_ci_if_error: false
 
+  extension-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run extension checks
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
   build-package:
-    needs: build-test
+    needs: [build-test, extension-test]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -70,6 +92,29 @@ jobs:
       - name: Build Package
         run: |
           python -m build
+
+      - name: Smoke test installed wheel
+        run: |
+          pip install dist/*.whl
+          cd /tmp
+          python - <<'PY'
+          import importlib.util
+          from importlib.metadata import distribution
+          from importlib.resources import files
+          from s2n.s2nscanner.plugins.discovery import discover_plugins
+
+          expected = {
+              "autobot", "brute_force", "csrf", "file_upload", "jwt",
+              "oscommand", "path_traversal", "sensitive_files",
+              "soft_brute_force", "sqlinjection", "xss",
+          }
+          assert {plugin["id"] for plugin in discover_plugins()} == expected
+          assert files("s2n.s2nscanner.plugins.xss").joinpath("xss_payloads.json").is_file()
+          assert files("s2n.s2nscanner.plugins.sqlinjection").joinpath("sqli_payloads.json").is_file()
+          assert files("s2n.s2nscanner.plugins.jwt").joinpath("weak_secrets.txt").is_file()
+          assert importlib.util.find_spec("native_host") is not None
+          assert not any(str(path).startswith("test/") for path in distribution("s2n").files)
+          PY
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -212,7 +257,5 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/s2n-docker:${{ steps.get_version.outputs.VERSION }}
             ${{ secrets.DOCKER_USER }}/s2n-docker:latest
             ${{ secrets.DOCKER_USER }}/s2n-docker:${{ steps.get_version.outputs.VERSION }}
-
-
 
 

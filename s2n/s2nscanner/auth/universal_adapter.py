@@ -12,7 +12,6 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
-from requests import Response
 
 from s2n.s2nscanner.clients.http_client import HttpClient
 from s2n.s2nscanner.constants import (
