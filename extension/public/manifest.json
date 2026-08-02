@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "S2N Scanner",
-    "version": "0.1.0",
-    "description": "S2N 취약점 스캐너 Chrome Extension GUI",
+    "version": "0.1.1",
+    "description": "s2n vulnerability scanner GUI Chrome Extension",
     "permissions": [
         "nativeMessaging",
         "storage",

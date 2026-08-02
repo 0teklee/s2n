@@ -129,3 +129,20 @@ export function disconnectNative(port: chrome.runtime.Port | null): void {
         }
     }
 }
+
+/**
+ * 에러 메시지가 native host 미설치/미등록으로 인한 것인지 판별합니다.
+ *
+ * Chrome이 반환하는 대표적인 메시지:
+ *  - "Specified native messaging host not found."  (manifest 없음 / s2n 미설치)
+ *  - "Access to the specified native messaging host is forbidden."  (extension ID 불일치)
+ */
+export function isNotInstalledError(error?: string | null): boolean {
+    if (!error) return false
+    const msg = error.toLowerCase()
+    return (
+        msg.includes('not found') ||
+        msg.includes('forbidden') ||
+        msg.includes('specified native messaging host')
+    )
+}

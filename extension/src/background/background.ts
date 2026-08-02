@@ -2,7 +2,7 @@
  * S2N Scanner - Background Service Worker
  */
 
-import { sendNativeMessage, connectNative, disconnectNative } from '@/lib/nativeMessaging'
+import { sendNativeMessage, connectNative, disconnectNative, isNotInstalledError } from '@/lib/nativeMessaging'
 import { INITIAL_SCAN_STATE } from '@/types/scan'
 import type { ScanState, Finding, ProgressInfo, ScanSummary } from '@/types/scan'
 import { saveScanHistory } from '@/lib/storage'
@@ -110,7 +110,7 @@ function handleNativeMessage(response: any) {
 function handleNativeDisconnect(error?: string) {
     console.warn('[Background] Native port disconnected. Error:', error)
     if (currentScanState.status === 'scanning' || currentScanState.status === 'validating') {
-        currentScanState.status = 'failed'
+        currentScanState.status = isNotInstalledError(error) ? 'not_installed' : 'failed'
         currentScanState.error = error || 'Lost connection to native host during scan.'
         broadcastStateUpdate()
     }
@@ -122,7 +122,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'ping') {
         sendNativeMessage({ action: 'ping' })
             .then((response) => sendResponse({ success: true, data: response }))
-            .catch((err) => sendResponse({ success: false, error: err instanceof Error ? err.message : 'Unknown error' }))
+            .catch((err) => {
+                const msg = err instanceof Error ? err.message : 'Unknown error'
+                if (isNotInstalledError(msg) && currentScanState.status === 'idle') {
+                    currentScanState.status = 'not_installed'
+                    currentScanState.error = msg
+                    broadcastStateUpdate()
+                }
+                sendResponse({ success: false, error: msg })
+            })
         return true
     }
 

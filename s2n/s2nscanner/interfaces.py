@@ -86,6 +86,9 @@ class ScanRequest:
     verbose: bool = False
     depth: int = 2
     accept_risk: bool = False
+    ai_mode: str = "off"
+    ai_model: str = "s2n-agent"
+    ai_endpoint: str = "http://localhost:11434"
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,9 @@ class CLIArguments:
     verbose: bool = False
     log_file: Optional[str] = None
     accept_risk: bool = False
+    ai_mode: str = "off"
+    ai_model: str = "s2n-agent"
+    ai_endpoint: str = "http://localhost:11434"
 
 
 # ============================================================================
@@ -120,6 +126,10 @@ class ScannerConfig:
     user_agent: str = "S2N-Scanner/0.1.0"
     follow_redirects: bool = True
     verify_ssl: bool = True
+    # AI Agent 설정
+    ai_mode: str = "off"                          # off | assist | smart | aggressive
+    ai_model: str = "s2n-agent"                   # Ollama 모델명 or HuggingFace repo ID
+    ai_endpoint: str = "http://localhost:11434"   # Ollama 서버 엔드포인트
 
 
 @dataclass(frozen=True)

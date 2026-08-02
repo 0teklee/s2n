@@ -8,6 +8,7 @@ import {
     Play, Square, Loader2, AlertTriangle,
     ShieldCheck, ShieldAlert, X, Download,
     House, ChevronDown, ChevronUp, Info,
+    Terminal, RefreshCw,
 } from 'lucide-react'
 import { exportFindingsToJson, exportFindingsToHtml } from '@/lib/export'
 
@@ -96,7 +97,7 @@ const css = {
 }
 
 export function PopupApp() {
-    const { state, startScan, stopScan } = useScan()
+    const { state, startScan, stopScan, checkInstallation } = useScan()
     const [url, setUrl] = useState('')
     const [selected, setSelected] = useState<string[]>(AVAILABLE_PLUGINS.map(p => p.id))
     const [showFindings, setShowFindings] = useState(false)
@@ -105,7 +106,8 @@ export function PopupApp() {
 
     const isScanning = state.status === 'validating' || state.status === 'scanning'
     const isCompleted = state.status === 'completed'
-    const isIdle = !isScanning && !isCompleted
+    const isNotInstalled = state.status === 'not_installed'
+    const isIdle = !isScanning && !isCompleted && !isNotInstalled
     const total = state.summary?.totalFindings ?? 0
     const hasFindings = total > 0
     const maxCount = Math.max(...SEV_ORDER.map(s => state.summary?.severityCounts[s] ?? 0), 1)
@@ -190,18 +192,21 @@ export function PopupApp() {
                     background: isScanning ? 'rgba(59,130,246,0.12)' :
                         isCompleted ? 'rgba(34,197,94,0.1)' :
                             state.status === 'failed' ? 'rgba(239,68,68,0.1)' :
-                                'rgba(255,255,255,0.06)',
+                                isNotInstalled ? 'rgba(234,179,8,0.1)' :
+                                    'rgba(255,255,255,0.06)',
                     border: `1px solid ${isScanning ? 'rgba(59,130,246,0.25)' :
                             isCompleted ? 'rgba(34,197,94,0.2)' :
                                 state.status === 'failed' ? 'rgba(239,68,68,0.2)' :
-                                    'rgba(255,255,255,0.08)'
+                                    isNotInstalled ? 'rgba(234,179,8,0.2)' :
+                                        'rgba(255,255,255,0.08)'
                         }`,
                 }}>
                     <span style={{
                         width: 6, height: 6, borderRadius: '50%',
                         background: isScanning ? '#3b82f6' :
                             isCompleted ? '#22c55e' :
-                                state.status === 'failed' ? '#ef4444' : '#52525b',
+                                state.status === 'failed' ? '#ef4444' :
+                                    isNotInstalled ? '#eab308' : '#52525b',
                         flexShrink: 0,
                         boxShadow: isScanning ? '0 0 0 2px rgba(59,130,246,0.3)' : 'none',
                         animation: isScanning ? 'pulse 1.5s infinite' : 'none',
@@ -211,9 +216,10 @@ export function PopupApp() {
                         textTransform: 'uppercase',
                         color: isScanning ? '#60a5fa' :
                             isCompleted ? '#4ade80' :
-                                state.status === 'failed' ? '#f87171' : 'rgba(255,255,255,0.4)',
+                                state.status === 'failed' ? '#f87171' :
+                                    isNotInstalled ? '#facc15' : 'rgba(255,255,255,0.4)',
                     }}>
-                        {isScanning ? 'Scanning' : isCompleted ? 'Done' : state.status === 'failed' ? 'Error' : 'Ready'}
+                        {isScanning ? 'Scanning' : isCompleted ? 'Done' : state.status === 'failed' ? 'Error' : isNotInstalled ? 'Setup' : 'Ready'}
                     </span>
                 </div>
             </header>
@@ -234,8 +240,8 @@ export function PopupApp() {
             <ScrollArea className="flex-1 min-h-0">
                 <div style={{ padding: '16px 16px 20px' }}>
 
-                    {/* Error */}
-                    {state.error && (
+                    {/* Error — not_installed일 때는 아래 전용 화면이 대체하므로 숨김 */}
+                    {state.error && !isNotInstalled && (
                         <div style={{
                             display: 'flex', alignItems: 'flex-start', gap: 8,
                             padding: '10px 12px', borderRadius: 8, marginBottom: 14,
@@ -246,6 +252,106 @@ export function PopupApp() {
                             <span style={{ flex: 1, lineHeight: 1.5 }}>{state.error}</span>
                             <button onClick={stopScan} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: 0, flexShrink: 0 }}>
                                 <X size={13} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* ════════ NOT INSTALLED ════════ */}
+                    {isNotInstalled && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                            {/* 경고 헤더 */}
+                            <div style={{
+                                display: 'flex', alignItems: 'flex-start', gap: 10,
+                                padding: '12px 14px', borderRadius: 8,
+                                background: 'rgba(234,179,8,0.07)',
+                                border: '1px solid rgba(234,179,8,0.2)',
+                            }}>
+                                <AlertTriangle size={15} style={{ color: '#facc15', flexShrink: 0, marginTop: 1 }} />
+                                <div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#facc15', marginBottom: 3 }}>
+                                        S2N host not connected
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+                                        The native messaging host could not be found or is not authorized for this extension.
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 설치 단계 */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {[
+                                    {
+                                        step: '1',
+                                        title: 'Install s2n',
+                                        cmd: 'pip install s2n',
+                                        note: 'Already installed? Run pip install --upgrade s2n',
+                                    },
+                                    {
+                                        step: '2',
+                                        title: 'Register the native host',
+                                        cmd: 's2n install-gui',
+                                        note: 'Press Enter to use the default extension ID, or paste yours.',
+                                    },
+                                    {
+                                        step: '3',
+                                        title: 'Restart Chrome',
+                                        cmd: null,
+                                        note: 'Close and reopen Chrome completely (not just this tab).',
+                                    },
+                                ].map(({ step, title, cmd, note }) => (
+                                    <div key={step} style={{
+                                        ...css.card,
+                                        display: 'flex', gap: 12, alignItems: 'flex-start',
+                                    }}>
+                                        <div style={{
+                                            width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+                                            background: 'rgba(234,179,8,0.12)',
+                                            border: '1px solid rgba(234,179,8,0.25)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 10, fontWeight: 800, color: '#facc15',
+                                        }}>{step}</div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginBottom: cmd ? 6 : 4 }}>
+                                                {title}
+                                            </div>
+                                            {cmd && (
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 6,
+                                                    padding: '5px 8px', borderRadius: 5,
+                                                    background: 'rgba(0,0,0,0.35)',
+                                                    border: '1px solid rgba(255,255,255,0.07)',
+                                                    marginBottom: 5,
+                                                }}>
+                                                    <Terminal size={10} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
+                                                    <code style={{ fontSize: 11, color: '#a5f3fc', fontFamily: 'monospace', letterSpacing: '0.01em' }}>
+                                                        {cmd}
+                                                    </code>
+                                                </div>
+                                            )}
+                                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', lineHeight: 1.5 }}>
+                                                {note}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 재확인 버튼 */}
+                            <button
+                                type="button"
+                                onClick={checkInstallation}
+                                style={{
+                                    ...css.btn,
+                                    background: 'rgba(234,179,8,0.12)',
+                                    border: '1px solid rgba(234,179,8,0.25)',
+                                    color: '#facc15',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.2)' }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.12)' }}
+                            >
+                                <RefreshCw size={12} />
+                                Retry Connection
                             </button>
                         </div>
                     )}

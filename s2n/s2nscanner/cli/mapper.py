@@ -57,4 +57,7 @@ def cliargs_to_scanrequest(args: CLIArguments) -> ScanRequest:
         verbose=args.verbose,
         depth=depth,
         accept_risk=args.accept_risk,
+        ai_mode=getattr(args, "ai_mode", "off"),
+        ai_model=getattr(args, "ai_model", "s2n-agent"),
+        ai_endpoint=getattr(args, "ai_endpoint", "http://localhost:11434"),
     )

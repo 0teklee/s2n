@@ -58,7 +58,12 @@ def build_scan_config(
     # 최종 구성 반환
     return ScanConfig(
         target_url=req.target_url,
-        scanner_config=ScannerConfig(crawl_depth=2),
+        scanner_config=ScannerConfig(
+            crawl_depth=req.depth,
+            ai_mode=getattr(req, "ai_mode", "off"),
+            ai_model=getattr(req, "ai_model", "s2n-agent"),
+            ai_endpoint=getattr(req, "ai_endpoint", "http://localhost:11434"),
+        ),
         plugin_configs=plugin_configs,
         auth_config=auth_config,
         network_config=NetworkConfig(),

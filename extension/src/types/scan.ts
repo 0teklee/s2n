@@ -3,7 +3,7 @@
  */
 
 /** 스캔 상태 */
-export type ScanStatus = 'idle' | 'validating' | 'scanning' | 'completed' | 'failed'
+export type ScanStatus = 'idle' | 'validating' | 'scanning' | 'completed' | 'failed' | 'not_installed'
 
 /** 심각도 레벨 */
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
