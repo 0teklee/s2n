@@ -31,7 +31,7 @@ Repository = "https://github.com/504s2n/s2n"
 Issues = "https://github.com/504s2n/s2n/issues"
 
 [project.optional-dependencies]
-dev = ["pytest", "responses", "pytest-cov", "build", "twine"]
+dev = ["pytest", "responses", "pytest-cov", "build", "twine", "ruff", "mypy"]
 ai = ["s2n-agent>=0.1.0"]
 
 [project.scripts]
