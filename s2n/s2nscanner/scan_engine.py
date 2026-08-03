@@ -270,6 +270,18 @@ class Scanner:
                 }.get(result.status, "ℹ️")
                 self._emit_progress(idx, total_plugins, f"{status_icon} {plugin_name} - {result.status.value}")
 
+        # on_scan_complete — 모든 플러그인 run() 종료 후 1회만 호출.
+        # aggregate FP 필터/multi-step planner처럼 개별 플러그인이 아니라 전체 스캔
+        # 결과를 봐야 하는 훅이라, pre_scan/post_scan/cleanup과 달리 루프 밖에서
+        # 한 번만 호출한다. 이 훅을 구현하지 않은 일반 플러그인에는 영향이 없다.
+        for plugin in plugins:
+            if hasattr(plugin, "on_scan_complete"):
+                plugin_name = getattr(plugin, "name", plugin.__class__.__name__)
+                try:
+                    plugin.on_scan_complete(self.scan_context, plugin_results)
+                except Exception as exc:
+                    self.logger.exception(f"💣 Exception during {plugin_name}.on_scan_complete(): {exc}")
+
         # --- 리포트 작성
         end_time = datetime.utcnow()
         metadata = self._build_metadata()

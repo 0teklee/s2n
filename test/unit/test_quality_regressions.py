@@ -136,3 +136,91 @@ def test_csv_report_neutralizes_spreadsheet_formulas():
 
     assert "'=CMD()" in output
     assert "'=HYPERLINK" in output
+
+
+def _disable_smart_crawl(monkeypatch):
+    """단위 테스트에서 실제 네트워크 크롤링을 타지 않도록 smart_crawl을 무력화."""
+    import s2n.s2nscanner.crawler.smart_crawler as smart_crawler_mod
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("network disabled in unit test")
+
+    monkeypatch.setattr(smart_crawler_mod, "smart_crawl", _raise)
+
+
+def _fake_plugin_result(plugin_name: str) -> PluginResult:
+    now = datetime.now()
+    return PluginResult(
+        plugin_name=plugin_name,
+        status=PluginStatus.SUCCESS,
+        findings=[],
+        start_time=now,
+        end_time=now,
+    )
+
+
+def test_on_scan_complete_is_called_once_after_all_plugins_run(monkeypatch):
+    """scan()이 모든 플러그인 run() 종료 후 on_scan_complete 훅을 1회 호출해야 한다.
+
+    S2NAgentPlugin.on_scan_complete()가 aggregate FP 필터/multi-step planner를
+    구동하는 진입점인데, 지금까지 scan_engine.py에 호출부 자체가 없어 이 훅이
+    한 번도 실행되지 않았다 (docs/plugins/integration-gaps.md §2 참고).
+    """
+    _disable_smart_crawl(monkeypatch)
+
+    calls: list[tuple[object, list]] = []
+
+    class _PluginWithOnScanComplete:
+        name = "fake_with_hook"
+
+        def run(self, plugin_context):
+            return _fake_plugin_result("fake_with_hook")
+
+        def on_scan_complete(self, scan_context, plugin_results):
+            calls.append((scan_context, list(plugin_results)))
+
+    class _PluginWithoutOnScanComplete:
+        """on_scan_complete를 구현하지 않은 일반 플러그인 — 회귀 없이 그대로 스킵되어야 한다."""
+
+        name = "fake_without_hook"
+
+        def run(self, plugin_context):
+            return _fake_plugin_result("fake_without_hook")
+
+    config = ScanConfig(target_url="https://example.invalid")
+    scanner = Scanner(
+        config,
+        plugins=[_PluginWithOnScanComplete(), _PluginWithoutOnScanComplete()],
+    )
+
+    scanner.scan()
+
+    assert len(calls) == 1
+    called_scan_context, called_plugin_results = calls[0]
+    assert called_scan_context is scanner.scan_context
+    assert {r.plugin_name for r in called_plugin_results} == {
+        "fake_with_hook",
+        "fake_without_hook",
+    }
+
+
+def test_on_scan_complete_exception_does_not_abort_scan(monkeypatch):
+    """on_scan_complete()에서 예외가 발생해도 스캔 전체는 정상적으로 완료돼야 한다."""
+    _disable_smart_crawl(monkeypatch)
+
+    class _ExplodingPlugin:
+        name = "exploding_plugin"
+
+        def run(self, plugin_context):
+            return _fake_plugin_result("exploding_plugin")
+
+        def on_scan_complete(self, scan_context, plugin_results):
+            raise ValueError("boom")
+
+    config = ScanConfig(target_url="https://example.invalid")
+    scanner = Scanner(config, plugins=[_ExplodingPlugin()])
+
+    report = scanner.scan()
+
+    assert report is not None
+    assert len(report.plugin_results) == 1
