@@ -139,7 +139,21 @@ def cli():
     "--ai-endpoint",
     default="http://localhost:11434",
     show_default=True,
-    help="Ollama server endpoint / Ollama 서버 주소",
+    help="Ollama server endpoint / Anthropic base URL / OpenAI(-compatible) base_url "
+    "— meaning depends on --ai-provider / Ollama 서버 주소 (provider에 따라 의미가 다름)",
+)
+@click.option(
+    "--ai-provider",
+    type=click.Choice(["auto", "ollama", "huggingface", "anthropic", "claude", "openai", "gpt"], case_sensitive=False),
+    default=None,
+    help="LLM provider / AI 공급자 (기본: auto — Ollama 우선, 안 되면 HuggingFace). "
+    "s2n-agent의 S2NAGENT_PROVIDER 환경변수로도 지정 가능",
+)
+@click.option(
+    "--ai-api-key",
+    default=None,
+    help="API key for anthropic/openai providers / Claude·GPT 등 API 기반 provider용 API 키 "
+    "(생략 시 ANTHROPIC_API_KEY/OPENAI_API_KEY 환경변수 사용)",
 )
 def scan(
     url,
@@ -158,6 +172,8 @@ def scan(
     ai_mode,
     ai_model,
     ai_endpoint,
+    ai_provider,
+    ai_api_key,
 ):
     """Run a vulnerability scan / 취약점 스캔 실행"""
     logger = init_logger(verbose, log_file)
@@ -185,16 +201,6 @@ def scan(
                 f"Unknown plugins: {', '.join(unknown_plugins)}. "
                 "Run 's2n list-plugins' to see available plugins."
             )
-
-    # AI 모드 활성화 시: s2n_agent를 plugin_list 맨 앞에 추가
-    # → build_scan_config의 plugin_configs에 포함되어 scan_engine allowed_plugins 필터 통과
-    if ai_mode != "off":
-        try:
-            from s2nagent.constants import AGENT_PLUGIN_NAME
-            if AGENT_PLUGIN_NAME not in plugin_list:
-                plugin_list = [AGENT_PLUGIN_NAME] + plugin_list
-        except ImportError:
-            pass  # s2nagent 미설치 시 무시
 
     # AI 모드 활성화 시: s2n_agent를 plugin_list 맨 앞에 추가
     # → build_scan_config의 plugin_configs에 포함되어 scan_engine allowed_plugins 필터 통과
@@ -314,6 +320,8 @@ def scan(
                 ai_mode=ai_mode,
                 ai_model=ai_model,
                 ai_endpoint=ai_endpoint,
+                ai_provider=ai_provider,
+                ai_api_key=ai_api_key,
             )
             on_finding_cb = agent_plugin.on_finding
 
@@ -326,7 +334,20 @@ def scan(
             # Agent가 항상 첫 번째로 실행되도록 prepend
             all_plugins = [agent_plugin] + _regular_instances
 
-            console.print(f"[cyan]🤖 S2N-Agent 활성화: mode={ai_mode}, model={ai_model}[/cyan]")
+            _provider_label = ai_provider or "auto"
+            console.print(f"[cyan]🤖 S2N-Agent 활성화: mode={ai_mode}, model={ai_model}, provider={_provider_label}[/cyan]")
+
+            if not agent_plugin.is_available():
+                console.print(
+                    f"[yellow]⚠️  provider={_provider_label} 사용 불가 — API 키 또는 엔드포인트를 "
+                    "확인하세요 (ANTHROPIC_API_KEY / OPENAI_API_KEY / --ai-api-key / --ai-endpoint). "
+                    "AI 기능 호출 시 오류가 발생합니다.[/yellow]"
+                )
+            elif _provider_label in ("anthropic", "claude", "openai", "gpt"):
+                console.print(
+                    "[dim]ℹ️  이 provider는 API 키 존재 여부만 확인했습니다 — "
+                    "실제 호출 성공을 보장하지 않습니다(키 만료/무효 가능).[/dim]"
+                )
         except ImportError:
             console.print(
                 "[yellow]⚠️  s2nagent 패키지 미설치 — AI 모드 비활성화. "
