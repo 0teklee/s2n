@@ -144,9 +144,10 @@ def cli():
 )
 @click.option(
     "--ai-provider",
-    type=click.Choice(["auto", "ollama", "huggingface", "anthropic", "claude", "openai", "gpt"], case_sensitive=False),
+    type=click.Choice(["ollama", "huggingface", "anthropic", "claude", "openai", "gpt"], case_sensitive=False),
     default=None,
-    help="LLM provider / AI 공급자 (기본: auto — Ollama 우선, 안 되면 HuggingFace). "
+    help="LLM provider / AI 공급자 — --ai-mode가 off가 아니면 반드시 지정해야 함 "
+    "(자동으로 Ollama/HuggingFace가 선택되지 않음). "
     "s2n-agent의 S2NAGENT_PROVIDER 환경변수로도 지정 가능",
 )
 @click.option(
@@ -334,7 +335,10 @@ def scan(
             # Agent가 항상 첫 번째로 실행되도록 prepend
             all_plugins = [agent_plugin] + _regular_instances
 
-            _provider_label = ai_provider or "auto"
+            # ai_provider가 비어 있어도 여기까지 왔다는 건 S2NAGENT_PROVIDER 환경변수로
+            # provider가 해석됐다는 뜻이다 — 그렇지 않으면 S2NAgentPlugin() 생성자에서
+            # 이미 ValueError가 발생해 아래 except 절로 빠진다.
+            _provider_label = ai_provider or os.environ.get("S2NAGENT_PROVIDER", "(env)")
             console.print(f"[cyan]🤖 S2N-Agent 활성화: mode={ai_mode}, model={ai_model}, provider={_provider_label}[/cyan]")
 
             if not agent_plugin.is_available():
@@ -353,6 +357,9 @@ def scan(
                 "[yellow]⚠️  s2nagent 패키지 미설치 — AI 모드 비활성화. "
                 "`pip install s2n-agent` 실행 필요.[/yellow]"
             )
+        except ValueError as exc:
+            console.print(f"[red]❌ AI provider 오류: {exc}[/red]")
+            sys.exit(1)
 
     scanner = Scanner(
         config=config,
