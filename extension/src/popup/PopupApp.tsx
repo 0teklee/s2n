@@ -20,6 +20,7 @@ const SEV: Record<Severity, { dot: string; label: string; bar: string }> = {
     INFO: { dot: '#71717a', label: '#a1a1aa', bar: '#71717a' },
 }
 const SEV_ORDER: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+const RISKY_PLUGINS = new Set(['brute_force', 'autobot'])
 
 const cleanMsg = (s: string) =>
     s.replace(/[\u{1F000}-\u{1FFFF}]/gu, '').replace(/\s{2,}/g, ' ').trim()
@@ -99,7 +100,10 @@ const css = {
 export function PopupApp() {
     const { state, startScan, stopScan, checkInstallation } = useScan()
     const [url, setUrl] = useState('')
-    const [selected, setSelected] = useState<string[]>(AVAILABLE_PLUGINS.map(p => p.id))
+    const [selected, setSelected] = useState<string[]>(
+        AVAILABLE_PLUGINS.filter(p => !RISKY_PLUGINS.has(p.id)).map(p => p.id),
+    )
+    const [acceptRisk, setAcceptRisk] = useState(false)
     const [showFindings, setShowFindings] = useState(false)
     const [smoothPct, setSmoothPct] = useState(0)
     const smoothPctRef = useRef(0)
@@ -112,12 +116,13 @@ export function PopupApp() {
     const hasFindings = total > 0
     const maxCount = Math.max(...SEV_ORDER.map(s => state.summary?.severityCounts[s] ?? 0), 1)
     const pct = Math.max(0, state.progress?.percent ?? 0)
+    const hasRiskyPlugin = selected.some(id => RISKY_PLUGINS.has(id))
+    const canStart = Boolean(url && selected.length > 0 && (!hasRiskyPlugin || acceptRisk))
 
     // 스캔 시작/종료 시 smoothPct 리셋
     useEffect(() => {
         if (!isScanning) {
             smoothPctRef.current = 0
-            setSmoothPct(0)
             return
         }
         // 실제 pct보다 smoothPct가 낮으면 따라가고,
@@ -134,7 +139,7 @@ export function PopupApp() {
     }, [isScanning, pct])
 
     useEffect(() => {
-        if (!url && chrome?.tabs) {
+        if (chrome?.tabs) {
             chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
                 const u = tabs[0]?.url
                 if (u?.startsWith('http')) setUrl(u)
@@ -144,7 +149,7 @@ export function PopupApp() {
 
     const handleStart = (e: FormEvent) => {
         e.preventDefault()
-        if (url && selected.length > 0) startScan(url, selected)
+        if (canStart) startScan(url, selected, acceptRisk)
     }
     const toggle = (id: string) =>
         setSelected(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
@@ -449,12 +454,31 @@ export function PopupApp() {
                                 </div>
                             </div>
 
+                            {hasRiskyPlugin && (
+                                <label style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: 9,
+                                    padding: '9px 10px', marginBottom: 12, borderRadius: 7,
+                                    background: 'rgba(234,179,8,0.07)',
+                                    border: '1px solid rgba(234,179,8,0.2)',
+                                    cursor: 'pointer', color: 'rgba(255,255,255,0.55)',
+                                    fontSize: 10, lineHeight: 1.5,
+                                }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={acceptRisk}
+                                        onChange={e => setAcceptRisk(e.target.checked)}
+                                        style={{ marginTop: 2, accentColor: '#eab308' }}
+                                    />
+                                    I authorize active brute-force or automated browser behavior against this target.
+                                </label>
+                            )}
+
                             <button
                                 type="submit"
-                                disabled={!url || selected.length === 0}
-                                style={{ ...css.btn, opacity: (!url || selected.length === 0) ? 0.25 : 1 }}
-                                onMouseEnter={e => { if (url && selected.length) e.currentTarget.style.opacity = '0.88' }}
-                                onMouseLeave={e => { if (url && selected.length) e.currentTarget.style.opacity = '1' }}
+                                disabled={!canStart}
+                                style={{ ...css.btn, opacity: canStart ? 1 : 0.25 }}
+                                onMouseEnter={e => { if (canStart) e.currentTarget.style.opacity = '0.88' }}
+                                onMouseLeave={e => { if (canStart) e.currentTarget.style.opacity = '1' }}
                             >
                                 <Play size={12} fill="currentColor" />
                                 Start Scan

@@ -9,9 +9,7 @@ ScanConfig/ScanContext ↔ PluginContext ↔ PluginResult/ScanReport 흐름을 �
 from __future__ import annotations
 
 import getpass
-import importlib
 import logging
-import pkgutil
 import platform
 import socket
 import sys
@@ -27,6 +25,7 @@ except ImportError:  # pragma: no cover - <py3.8 fallback>
 
 from s2n.s2nscanner.finding import create_plugin_result, create_scan_report
 from s2n.s2nscanner.clients.http_client import HttpClient
+from s2n.s2nscanner.clients.protocols import HttpClientConfig
 from s2n.s2nscanner.interfaces import (
     Confidence,
     Finding,
@@ -65,13 +64,14 @@ class Scanner:
         auth_adapter: Optional[Any] = None,
         auth_credentials: Optional[List[Tuple[str, str]]] = None,
         http_client: Optional[HttpClient] = None,
-        concurrency: int = 1,
-        timeout: int = 15,
+        concurrency: Optional[int] = None,
+        timeout: Optional[int] = None,
         logger: Optional[logging.Logger] = None,
         on_finding: Optional[Callable[[Finding], None]] = None,
         on_progress: Optional[Callable[[ProgressInfo], None]] = None,
         defer_authentication: bool = False,
         skip_auth_plugins: Optional[Sequence[str]] = None,
+        cancel_event: Optional[Any] = None,
     ) -> None:
         if config is None:
             raise ValueError("Scanner requires a ScanConfig instance.")
@@ -83,12 +83,13 @@ class Scanner:
         self.defer_authentication = defer_authentication
         self.skip_auth_plugins = {name.lower() for name in (skip_auth_plugins or [])}
         self._auth_performed = False
-        self.http_client = http_client
+        self.http_client = http_client or self._build_http_client()
         self.plugins = plugins or []
-        self.concurrency = concurrency
-        self.timeout = timeout
+        self.concurrency = concurrency or self.config.scanner_config.max_threads
+        self.timeout = timeout or self.config.scanner_config.timeout
         self.on_finding = on_finding
         self.on_progress = on_progress
+        self.cancel_event = cancel_event
 
         self._discovered_plugins: List[Any] = []
         plugin_keys = list(self.config.plugin_configs.keys()) if self.config.plugin_configs else []
@@ -121,8 +122,7 @@ class Scanner:
                     plugin
                     for plugin in self.plugins
                     if not self.allowed_plugins
-                    or getattr(plugin, "name", plugin.__class__.__name__).lower()
-                    in self.allowed_plugins
+                    or self._get_plugin_identifier(plugin) in self.allowed_plugins
                 ]
             )
             for plugin in self._discovered_plugins:
@@ -175,6 +175,7 @@ class Scanner:
                 self.config.target_url,
                 self.http_client or self.scan_context.http_client,
                 depth=crawl_depth,
+                should_cancel=self._is_cancelled,
             )
             setattr(self.scan_context, "sitemap", sitemap)
             self.logger.info(
@@ -203,6 +204,9 @@ class Scanner:
             self._emit_progress(0, 0, "⚠️ Cannot find executable plugin \n 실행할 플러그인이 없습니다.")
 
         for idx, plugin in enumerate(plugins, start=1):
+            if self._is_cancelled():
+                self.logger.info("Scan cancellation requested; stopping before next plugin.")
+                break
             plugin_name = getattr(plugin, "name", plugin.__class__.__name__)
             plugin_identifier = self._get_plugin_identifier(plugin)
 
@@ -211,7 +215,7 @@ class Scanner:
 
             self.logger.info(f"🔍 Executing plugin: {plugin_name}")
             self._emit_progress(idx - 1, total_plugins, f"🔄 {plugin_name} Running")
-            plugin_config = self._resolve_plugin_config(plugin_name)
+            plugin_config = self._resolve_plugin_config(plugin_identifier, plugin_name)
             result: Optional[PluginResult] = None
 
             if not plugin_config.enabled:
@@ -266,6 +270,18 @@ class Scanner:
                 }.get(result.status, "ℹ️")
                 self._emit_progress(idx, total_plugins, f"{status_icon} {plugin_name} - {result.status.value}")
 
+        # on_scan_complete — 모든 플러그인 run() 종료 후 1회만 호출.
+        # aggregate FP 필터/multi-step planner처럼 개별 플러그인이 아니라 전체 스캔
+        # 결과를 봐야 하는 훅이라, pre_scan/post_scan/cleanup과 달리 루프 밖에서
+        # 한 번만 호출한다. 이 훅을 구현하지 않은 일반 플러그인에는 영향이 없다.
+        for plugin in plugins:
+            if hasattr(plugin, "on_scan_complete"):
+                plugin_name = getattr(plugin, "name", plugin.__class__.__name__)
+                try:
+                    plugin.on_scan_complete(self.scan_context, plugin_results)
+                except Exception as exc:
+                    self.logger.exception(f"💣 Exception during {plugin_name}.on_scan_complete(): {exc}")
+
         # --- 리포트 작성
         end_time = datetime.utcnow()
         metadata = self._build_metadata()
@@ -287,8 +303,29 @@ class Scanner:
             report.duration_seconds,
             len(plugin_results),
         )
-        self._emit_progress(total_plugins, total_plugins or 1, "🏁 스캔 완료")
+        final_message = "Scan cancelled" if self._is_cancelled() else "🏁 스캔 완료"
+        self._emit_progress(len(plugin_results), total_plugins or 1, final_message)
         return report
+
+    def _build_http_client(self) -> HttpClient:
+        scanner = self.config.scanner_config
+        network = self.config.network_config
+        return HttpClient(
+            HttpClientConfig(
+                retry=scanner.max_retries,
+                backoff=scanner.retry_delay,
+                timeout=(network.connection_timeout, network.read_timeout),
+                verify_ssl=scanner.verify_ssl,
+                allow_redirects=scanner.follow_redirects,
+                base_headers={"User-Agent": scanner.user_agent},
+                proxy=network.proxy,
+                rate_limit=network.rate_limit,
+                max_connections=network.max_connections,
+            )
+        )
+
+    def _is_cancelled(self) -> bool:
+        return bool(self.cancel_event and self.cancel_event.is_set())
 
     def _prepare_scan_context(self, scan_context: Optional[ScanContext]) -> ScanContext:
         """
@@ -338,9 +375,13 @@ class Scanner:
         except Exception:  # pragma: no cover - metadata lookup failure
             return DEFAULT_SCANNER_VERSION
 
-    def _resolve_plugin_config(self, plugin_name: str) -> PluginConfig:
+    def _resolve_plugin_config(
+        self, plugin_identifier: str, plugin_name: str
+    ) -> PluginConfig:
         config = (
-            self.config.plugin_configs.get(plugin_name)
+            self.config.plugin_configs.get(plugin_identifier)
+            or self.config.plugin_configs.get(plugin_identifier.lower())
+            or self.config.plugin_configs.get(plugin_name)
             or self.config.plugin_configs.get(plugin_name.lower())
         )
         return config or PluginConfig()
@@ -487,6 +528,11 @@ class Scanner:
         is_result_plugin_result = isinstance(raw_result, PluginResult)
 
         if not is_result_plugin_result and hasattr(plugin, "post_scan"):
+            pre_post_scan_findings = (
+                self._normalize_findings(plugin_name, raw_result, self.config.target_url)
+                if raw_result is not None
+                else []
+            )
             try:
                 self.logger.info(f"▶️ {plugin_name}.post_scan() started")
                 final_result = plugin.post_scan(plugin_context)
@@ -494,9 +540,12 @@ class Scanner:
 
                 if not isinstance(final_result, PluginResult):
                     raise TypeError(f"post_scan() must return a PluginResult instance, got {type(final_result).__name__}")
-                
+
+                if pre_post_scan_findings:
+                    final_result.findings = list(pre_post_scan_findings) + list(final_result.findings or [])
+
                 raw_result = final_result
-            
+
             except Exception as exc:
                 self.logger.exception(f"💣 Exception during {plugin_name}.post_scan(): {exc}")
                 raw_result = self._plugin_failure_result(plugin_name, exc, start_time)
@@ -524,6 +573,7 @@ class Scanner:
         if not isinstance(raw_result, PluginResult):
             findings = self._normalize_findings(plugin_name, raw_result, self.config.target_url)
             self.logger.debug(f"📊 '{plugin_name}' normalized findings count={len(findings)}")
+            self._emit_findings(findings)
 
             return create_plugin_result(
                 plugin_name=plugin_name,

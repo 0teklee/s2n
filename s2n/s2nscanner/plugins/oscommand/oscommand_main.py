@@ -8,14 +8,16 @@ OS Command Injection Plugin
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from s2n.s2nscanner.crawler import crawl_recursive
 from s2n.s2nscanner.clients.http_client import HttpClient
 from s2n.s2nscanner.interfaces import (
     Finding,
+    PluginConfig,
     PluginContext,
     PluginError,
     PluginResult,
@@ -80,17 +82,69 @@ COMMON_PARAMS: Sequence[str] = [
     "file",
 ]
 
+# SAFETY-05: config로 주입되는 커스텀 페이로드 중 진단 목적(read-only)을 벗어난
+# 파괴적 명령을 실행 전에 차단하기 위한 블록리스트. 기본 페이로드(DEFAULT_PAYLOADS)는
+# 전부 읽기 전용이라 이 목록에 걸리지 않는다.
+DESTRUCTIVE_PAYLOAD_PATTERNS: Sequence[str] = [
+    r"rm\s+-rf",
+    r"rm\s+-r\s",
+    r"\bmkfs\b",
+    r"\bdd\s+if=",
+    r"\bshutdown\b",
+    r"\breboot\b",
+    r"\bhalt\b",
+    r"\bpoweroff\b",
+    r":\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;\s*:",  # fork bomb
+    r">\s*/dev/sd",
+    r"chmod\s+-R\s+777\s+/",
+    r"\bformat\s+[a-z]:",
+    r"\bdiskpart\b",
+    r"del\s+/f\s+/s\s+/q",
+    r"\btaskkill\b",
+    r"\bnet\s+user\b",
+    r"drop\s+database",
+    r"\bshred\b",
+    r"\bmkfs\.\w+",
+]
+
+
+def _is_destructive_payload(payload: str) -> bool:
+    lowered = payload.lower()
+    return any(re.search(pattern, lowered) for pattern in DESTRUCTIVE_PAYLOAD_PATTERNS)
+
+
+def sanitize_payloads(payloads: Sequence[str]) -> List[str]:
+    """SAFETY-05: 파괴적인 커스텀 페이로드를 실행 전에 걸러낸다.
+
+    config를 통해 임의의 페이로드를 주입할 수 있으므로, 기본값 외 페이로드가
+    read-only 진단 명령을 벗어나 대상 시스템을 손상시키지 않도록 검증한다.
+    """
+    safe: List[str] = []
+    for payload in payloads:
+        if _is_destructive_payload(payload):
+            logger.warning(
+                "[SAFETY] Rejected destructive oscommand payload (blocked, not executed): %r",
+                payload,
+            )
+            continue
+        safe.append(payload)
+    return safe
+
+
 class OSCommandPlugin:
     """Detects OS command injection by crawling targets and replaying payloads."""
     name = "oscommand"
     description = "Detects OS Command Injection vulnerabilities"
 
-    def __init__(self, config: Optional[Dict[str, object]] = None):
-        self.config = config or {}
-        self.depth = int(self.config.get("depth", 2))
-        self.timeout = int(self.config.get("timeout", 5))
-        self.payloads: Sequence[str] = self.config.get("payloads", DEFAULT_PAYLOADS)
-        self.patterns: Sequence[str] = self.config.get("patterns", DEFAULT_PATTERNS)
+    def __init__(self, config: Optional[PluginConfig] = None):
+        self.config = config
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.depth = int(custom_params.get("depth", 2))
+        self.timeout = int(getattr(config, "timeout", 5) or 5)
+        self.payloads: Sequence[str] = sanitize_payloads(
+            custom_params.get("payloads", DEFAULT_PAYLOADS)
+        )
+        self.patterns: Sequence[str] = custom_params.get("patterns", DEFAULT_PATTERNS)
         self.http: Optional[HttpClient] = None
 
     # New plugin API (PluginContext -> PluginResult)
@@ -102,6 +156,12 @@ class OSCommandPlugin:
         urls_scanned = 0
 
         try:
+            plugin_config = getattr(plugin_context, "plugin_config", None)
+            custom = getattr(plugin_config, "custom_params", {}) or {}
+            self.timeout = getattr(plugin_config, "timeout", self.timeout)
+            # SAFETY-05: run() 시점에 다시 주입될 수 있는 custom_params도 동일하게 검증한다.
+            self.payloads = sanitize_payloads(custom.get("payloads", self.payloads))
+            self.patterns = custom.get("patterns", self.patterns)
             client = self._resolve_client(plugin_context)
             target_url = self._resolve_target_url(plugin_context)
             depth = self._resolve_depth(plugin_context)
@@ -140,25 +200,6 @@ class OSCommandPlugin:
                     traceback=None,
                 ),
             )
-
-    # Legacy API (initialize/scan/teardown) for backward compatibility
-    def initialize(self, cfg=None, http: Optional[HttpClient] = None):
-        """Maintain compatibility with the legacy initialize signature."""
-        self.http = http or HttpClient()
-        if isinstance(cfg, dict):
-            self.depth = int(cfg.get("depth", self.depth))
-            self.timeout = int(cfg.get("timeout", self.timeout))
-        logger.info("OSCommand Plugin initialized (depth=%d, timeout=%d)", self.depth, self.timeout)
-
-    def scan(self, base_url: str, http: Optional[HttpClient] = None) -> List[Finding]:
-        """Legacy entry point that returns a plain Finding list for a base URL."""
-        client = http or self.http or HttpClient()
-        findings, _, _ = self._scan_urls(client=client, base_url=base_url, depth=self.depth)
-        return findings
-
-    def teardown(self):
-        """Release any per-run resources held by the plugin."""
-        logger.debug("OSCommand Plugin teardown complete.")
 
     # Internal helpers
     def _resolve_client(self, plugin_context: PluginContext) -> HttpClient:
@@ -278,6 +319,6 @@ class OSCommandPlugin:
 
         return findings, requests_sent
 
-def main(config: Optional[Dict[str, object]] = None) -> OSCommandPlugin:
+def main(config: Optional[PluginConfig] = None) -> OSCommandPlugin:
     """Factory exported via __all__ so the scanner can instantiate the plugin."""
     return OSCommandPlugin(config)

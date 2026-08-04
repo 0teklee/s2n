@@ -1,8 +1,11 @@
 import importlib
 import pkgutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+from s2n.s2nscanner.logger import get_logger
 
 PLUGIN_PACKAGE = "s2n.s2nscanner.plugins"
+logger = get_logger("plugin_discovery")
 
 def discover_plugins(include_instances: bool = False) -> List[Dict[str, Any]]:
     """
@@ -11,10 +14,11 @@ def discover_plugins(include_instances: bool = False) -> List[Dict[str, Any]]:
     try:
         package = importlib.import_module(PLUGIN_PACKAGE)
     except ImportError:
+        logger.exception("Unable to import plugin package %s", PLUGIN_PACKAGE)
         return []
 
     discovered = []
-    excluded_modules = {"helper", "discovery", "registry"}
+    excluded_modules = {"helper", "discovery", "registry", "base"}
     
     # pkgutil expects the filesystem path of the package
     if not hasattr(package, "__path__"):
@@ -55,6 +59,7 @@ def discover_plugins(include_instances: bool = False) -> List[Dict[str, Any]]:
                     meta["instance"] = instance
                 discovered.append(meta)
         except Exception:
+            logger.exception("Failed to load plugin module %s", module_name)
             continue
             
     return discovered

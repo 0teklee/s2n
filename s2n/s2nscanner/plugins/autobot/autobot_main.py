@@ -78,6 +78,9 @@ def _create_finding(
 class AutobotPlugin:
     """봇 탐지 플러그인."""
 
+    name = "autobot"
+    description = "Checks whether automated browser behavior is detected and blocked"
+
     DEFAULT_BEHAVIORS = ["rapid_crawl", "headless_signal"]
     DEFAULT_BLOCK_THRESHOLD = 1
     DEFAULT_HEADLESS = True
@@ -140,6 +143,11 @@ class AutobotPlugin:
 
     def run(self, plugin_context: PluginContext) -> PluginResult:
         logger: logging.Logger = plugin_context.logger
+        custom = plugin_context.plugin_config.custom_params or {}
+        self.behavior_names = custom.get("behaviors", self.behavior_names)
+        self.block_threshold = int(custom.get("block_threshold", self.block_threshold))
+        self.headless = bool(custom.get("headless", self.headless))
+        self.request_delay_ms = int(custom.get("request_delay_ms", self.request_delay_ms))
         start_time = datetime.now()
         findings: List[Finding] = []
         error: Optional[PluginError] = None

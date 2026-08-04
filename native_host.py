@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-import os
-with open('/tmp/chrome_test.log', 'a') as f:
-    f.write('Native host process initiated by Chrome.\n')
-
 """
 S2N Scanner - Native Messaging Host
 ====================================
@@ -16,33 +12,23 @@ stdin/stdout으로 통신합니다.
 """
 
 import json
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module='urllib3')
+import logging
+import os
 import struct
 import sys
-import os
-
-# Chrome Native Messaging 실행 시PYTHONPATH가 설정되지 않으므로,
-# 스크립트 위치 기준으로 상위 디렉토리를 sys.path에 추가하고 워킹 디렉토리로 고정합니다.
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(CURRENT_DIR) # /Users/yooju/Desktop/s2n
-S2N_DIR = os.path.join(CURRENT_DIR, "s2n") # /Users/yooju/Desktop/s2n/s2n
-
-# Chrome에서 실행 시 로컬 파일(plugins 등)을 읽기 위해 워킹 디렉토리 강제 고정
-os.chdir(CURRENT_DIR)
-
-if CURRENT_DIR not in sys.path:
-    sys.path.insert(0, CURRENT_DIR)
-if S2N_DIR not in sys.path:
-    sys.path.insert(1, S2N_DIR)
-
 import threading
+import tempfile
 import traceback
-from typing import Any, Dict, Optional, List
+import warnings
+from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
+
+warnings.filterwarnings("ignore", category=UserWarning, module="urllib3")
 
 # s2nscanner 코어 임포트
 try:
     from s2n.s2nscanner.scan_engine import Scanner
+    from s2n.s2nscanner.plugins.discovery import discover_plugins
     from s2n.s2nscanner.interfaces import (
         ScanConfig,
         ScannerConfig,
@@ -50,7 +36,6 @@ try:
         Finding,
         ProgressInfo,
         Severity,
-        Confidence,
     )
     S2N_AVAILABLE = True
 except ImportError:
@@ -68,13 +53,14 @@ write_lock = threading.Lock()
 REAL_STDIN = sys.stdin.buffer
 REAL_STDOUT = sys.stdout.buffer
 
-# 플러그인 등에서 input() 이나 print() 를 호출하여
-# Native Messaging 프로토콜이 오염되거나 끊기는 것을 방지합니다.
-sys.stdin = open(os.devnull, 'r')
-sys.stdout = open(os.devnull, 'w')
-
-# 현재 스캔 스레드를 추적 (명시적 중단 기능이 지원되면 사용할 목적)
 current_scan_thread: Optional[threading.Thread] = None
+current_cancel_event: Optional[threading.Event] = None
+
+
+def isolate_standard_streams() -> None:
+    """Prevent plugin input/print calls from corrupting the native protocol."""
+    sys.stdin = open(os.devnull, "r", encoding="utf-8")
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
 
 
 # ============================================================================
@@ -111,7 +97,10 @@ def read_message() -> Optional[Dict[str, Any]]:
         log_error(f"불완전한 메시지: expected={message_length}, got={len(raw_message)}")
         return None
 
-    return json.loads(raw_message.decode('utf-8'))
+    message = json.loads(raw_message.decode("utf-8"))
+    if not isinstance(message, dict):
+        raise ValueError("Native message must be a JSON object")
+    return message
 
 
 def write_message(message: Dict[str, Any]) -> None:
@@ -152,14 +141,11 @@ def decode_message(data: bytes) -> Dict[str, Any]:
     return json.loads(json_data.decode('utf-8'))
 
 
-import traceback
-import logging
-
 # ============================================================================
 # 로깅 (Chrome이 stderr를 삼키므로 파일로 기록)
 # ============================================================================
 logging.basicConfig(
-    filename='/tmp/s2n_native_host.log',
+    filename=os.path.join(tempfile.gettempdir(), "s2n_native_host.log"),
     level=logging.DEBUG,
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
@@ -179,7 +165,12 @@ def log_error(msg: str) -> None:
 # S2N Scanner 연동 (스레드 실행)
 # ============================================================================
 
-def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
+def _run_scan_thread(
+    target_url: str,
+    selected_plugins: List[str],
+    accept_risk: bool,
+    cancel_event: threading.Event,
+) -> None:
     """백그라운드 스레드에서 실제 스캔을 수행하고 결과를 콜백을 통해 스트리밍합니다."""
     log_info(f"스캔 스레드 시작: {target_url}, 플러그인: {selected_plugins}")
     
@@ -190,11 +181,15 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
             target_url=target_url,
             scanner_config=ScannerConfig(),
             plugin_configs=plugin_configs,
+            accept_risk=accept_risk,
         )
 
         # 콜백: 진행 상황 전송
         def _on_progress(info: ProgressInfo) -> None:
+            if cancel_event.is_set():
+                return
             write_message({
+                "status": "ok",
                 "action": "scan_progress",
                 "data": {
                     "current": info.current,
@@ -206,7 +201,10 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
 
         # 콜백: 취약점 발견 시 전송
         def _on_finding(finding: Finding) -> None:
+            if cancel_event.is_set():
+                return
             write_message({
+                "status": "ok",
                 "action": "scan_finding",
                 "data": {
                     "id": finding.id,
@@ -220,6 +218,7 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
                     "evidence": finding.evidence,
                     "cweId": finding.cwe_id,
                     "cvssScore": finding.cvss_score,
+                    "references": list(finding.references) if finding.references else [],
                     "timestamp": finding.timestamp.isoformat() if finding.timestamp else None,
                 }
             })
@@ -229,6 +228,7 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
             config=scan_config,
             on_progress=_on_progress,
             on_finding=_on_finding,
+            cancel_event=cancel_event,
         )
         
         # Scanner 엔진 내부의 allowed_plugins_order를 덮어씌워서 선택한 플러그인만 실행되도록 제어
@@ -236,6 +236,11 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
         scanner.allowed_plugins = set([p.lower() for p in selected_plugins])
 
         report = scanner.scan()
+
+        if cancel_event.is_set():
+            write_message({"status": "ok", "action": "scan_stopped"})
+            log_info("스캔 중단 완료 전송")
+            return
 
         # 스캔 완료 결과 요약 계산
         severity_counts = {sev.name: 0 for sev in Severity}
@@ -262,6 +267,7 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
 
         # 스캔 완료 이벤트 전송
         write_message({
+            "status": "ok",
             "action": "scan_completed",
             "data": {
                 "targetUrl": target_url,
@@ -273,13 +279,15 @@ def _run_scan_thread(target_url: str, selected_plugins: List[str]) -> None:
     except Exception as e:
         log_error(f"스캔 중 치명적인 예외 발생: {e}\n{traceback.format_exc()}")
         write_message({
+            "status": "error",
             "action": "scan_failed",
             "error": str(e)
         })
 
     finally:
-        global current_scan_thread
+        global current_cancel_event, current_scan_thread
         current_scan_thread = None
+        current_cancel_event = None
 
 
 # ============================================================================
@@ -312,7 +320,7 @@ def handle_get_version(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 def handle_start_scan(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """스캔을 시작하고 백그라운드 스레드로 넘깁니다."""
-    global current_scan_thread
+    global current_cancel_event, current_scan_thread
 
     if not S2N_AVAILABLE:
         return {"status": "error", "error": "s2n scanner module not found (sys.path issue?)"}
@@ -322,14 +330,30 @@ def handle_start_scan(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
     target_url = data["target_url"]
     selected_plugins = data.get("plugins", [])
+    accept_risk = bool(data.get("accept_risk", False))
+
+    parsed = urlparse(target_url) if isinstance(target_url, str) else None
+    if not parsed or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return {"status": "error", "error": "target_url must be a valid HTTP(S) URL"}
+    if not isinstance(selected_plugins, list) or not selected_plugins:
+        return {"status": "error", "error": "At least one plugin must be selected"}
+    if not all(isinstance(plugin, str) and plugin for plugin in selected_plugins):
+        return {"status": "error", "error": "Invalid plugin list"}
+    available_plugins = {plugin["id"] for plugin in discover_plugins()}
+    unknown_plugins = sorted(set(selected_plugins) - available_plugins)
+    if unknown_plugins:
+        return {
+            "status": "error",
+            "error": f"Unknown plugins: {', '.join(unknown_plugins)}",
+        }
 
     if current_scan_thread and current_scan_thread.is_alive():
         return {"status": "error", "error": "Scan already in progress"}
 
-    # 쓰레드 생성 및 시작
+    current_cancel_event = threading.Event()
     thread = threading.Thread(
         target=_run_scan_thread,
-        args=(target_url, selected_plugins),
+        args=(target_url, selected_plugins, accept_risk, current_cancel_event),
         daemon=True
     )
     current_scan_thread = thread
@@ -340,15 +364,14 @@ def handle_start_scan(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 
 def handle_stop_scan(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """진행 중인 스캔을 중단합니다 (현재 엔진은 강제 종료 옵션 미지원, 인터페이스만 제공)"""
-    global current_scan_thread
+    """Request cooperative cancellation of the active scan."""
+    global current_cancel_event, current_scan_thread
     if not current_scan_thread or not current_scan_thread.is_alive():
         return {"status": "ok", "action": "scan_stopped", "message": "No scan running"}
     
-    # TODO: Scanner 코어에 cancellation token 구현 후 적용
-    log_info("스캔 강제 중단 요청 수신 (향후 구현 예정)")
-    
-    # 억지로 중단할 수는 없고 Extension 측에서 포트를 끊는 방식을 권장
+    if current_cancel_event:
+        current_cancel_event.set()
+    log_info("스캔 중단 요청 수신")
     return {"status": "ok", "action": "scan_stopped"}
 
 
@@ -356,7 +379,6 @@ def handle_unknown(action: str) -> Dict[str, Any]:
     return {"status": "error", "action": action, "error": f"Unknown action: {action}"}
 
 
-from typing import Callable
 ACTION_HANDLERS: Dict[str, Callable[[Optional[Dict[str, Any]]], Dict[str, Any]]] = {
     "ping": handle_ping,
     "get_version": handle_get_version,
@@ -385,6 +407,7 @@ def dispatch(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # ============================================================================
 
 def main() -> None:
+    isolate_standard_streams()
     log_info("S2N Native Messaging Host started.")
 
     while True:
@@ -413,4 +436,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

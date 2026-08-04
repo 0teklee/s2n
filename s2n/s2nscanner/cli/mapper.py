@@ -13,7 +13,7 @@ def cliargs_to_scanrequest(args: CLIArguments) -> ScanRequest:
     
     # TODO: Depth param 추가
    
-    depth = int(args.depth) if args.depth else 2
+    depth = int(args.depth) if args.depth is not None else 2
     
     
     # AuthType 매핑

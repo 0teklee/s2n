@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react'
+import { getFindingKey } from '@/types/scan'
 import type { Finding } from '@/types/scan'
 
 interface FindingTableProps {
@@ -10,7 +11,9 @@ interface FindingTableProps {
 }
 
 export function FindingTable({ findings }: FindingTableProps) {
-    const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null)
+    const [selectedId, setSelectedId] = useState<string | null>(null)
+    // 필터가 바뀌어 현재 findings에 없는 id를 가리키면 상세 패널은 자동으로 사라진다 (EXT-008).
+    const selectedFinding = selectedId ? findings.find((f) => getFindingKey(f) === selectedId) ?? null : null
 
     if (findings.length === 0) {
         return (
@@ -45,10 +48,10 @@ export function FindingTable({ findings }: FindingTableProps) {
                     </thead>
                     <tbody className="divide-y divide-border">
                         {findings.map((f) => (
-                            <tr 
-                                key={f.id ?? `${f.title}__${f.url ?? ''}__${f.severity}__${f.parameter ?? ''}`}
-                                onClick={() => setSelectedFinding(f)}
-                                className={`hover:bg-accent/50 cursor-pointer transition-colors ${selectedFinding?.id === f.id ? 'bg-accent/50' : ''}`}
+                            <tr
+                                key={getFindingKey(f)}
+                                onClick={() => setSelectedId(getFindingKey(f))}
+                                className={`hover:bg-accent/50 cursor-pointer transition-colors ${selectedId === getFindingKey(f) ? 'bg-accent/50' : ''}`}
                             >
                                 <td className="px-4 py-3">
                                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold border ${getSeverityColor(f.severity)}`}>
@@ -67,8 +70,8 @@ export function FindingTable({ findings }: FindingTableProps) {
             {/* Detail Area */}
             {selectedFinding && (
                 <div className="md:w-1/2 md:max-w-md lg:max-w-lg border rounded-md shadow-sm bg-card overflow-y-auto flex flex-col relative shrink-0">
-                    <button 
-                        onClick={() => setSelectedFinding(null)}
+                    <button
+                        onClick={() => setSelectedId(null)}
                         className="absolute right-4 top-4 text-muted-foreground hover:text-foreground bg-secondary/80 rounded-full w-6 h-6 flex items-center justify-center p-0 text-lg leading-none"
                         aria-label="Close details"
                     >
@@ -107,12 +110,16 @@ export function FindingTable({ findings }: FindingTableProps) {
                                 </div>
                             )}
 
-                            {selectedFinding.reference && (
+                            {selectedFinding.references.length > 0 && (
                                 <div>
-                                    <h4 className="font-semibold text-sm uppercase tracking-wide border-b pb-1 mb-2">Reference</h4>
-                                    <a href={selectedFinding.reference} target="_blank" rel="noreferrer" className="text-sm text-blue-500 hover:underline break-all">
-                                        {selectedFinding.reference}
-                                    </a>
+                                    <h4 className="font-semibold text-sm uppercase tracking-wide border-b pb-1 mb-2">References</h4>
+                                    <div className="space-y-1">
+                                        {selectedFinding.references.map((ref) => (
+                                            <a key={ref} href={ref} target="_blank" rel="noreferrer" className="block text-sm text-blue-500 hover:underline break-all">
+                                                {ref}
+                                            </a>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                         </div>

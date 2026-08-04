@@ -63,6 +63,8 @@ class XSSScanner:
         # depth 옵션 추출 (plugin_config에서 우선, 없으면 인스턴스 기본값)
         depth = self.depth
         plugin_cfg = getattr(plugin_context, "plugin_config", None)
+        if plugin_cfg and plugin_cfg.payload_file:
+            self.payload_path = Path(plugin_cfg.payload_file)
         if plugin_cfg and getattr(plugin_cfg, "custom_params", None):
             depth = int(plugin_cfg.custom_params.get("depth", depth))
 

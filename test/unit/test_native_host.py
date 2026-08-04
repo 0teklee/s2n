@@ -125,6 +125,21 @@ class TestDispatch:
         response = dispatch({})
         assert response["status"] == "error"
 
+    @pytest.mark.parametrize(
+        "data,error",
+        [
+            ({"target_url": "file:///etc/passwd", "plugins": ["xss"]}, "valid HTTP(S)"),
+            ({"target_url": "https://example.com", "plugins": []}, "At least one plugin"),
+            ({"target_url": "https://example.com", "plugins": [None]}, "Invalid plugin"),
+            ({"target_url": "https://example.com", "plugins": ["missing"]}, "Unknown plugins"),
+        ],
+    )
+    def test_start_scan_validates_request(self, data, error):
+        response = dispatch({"action": "start_scan", "data": data})
+
+        assert response["status"] == "error"
+        assert error in response["error"]
+
 
 # ============================================================================
 # Subprocess E2E 핑퐁 테스트

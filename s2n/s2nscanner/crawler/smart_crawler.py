@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import urllib.parse
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from s2n.s2nscanner.crawler import extract_same_origin_links
 from s2n.s2nscanner.crawler.classifier import PageClassifier
@@ -25,6 +25,7 @@ def smart_crawl(
     depth: int = 2,
     timeout: int = 5,
     classifier: Optional[PageClassifier] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> SiteMap:
     """BFS 크롤링 + 페이지별 폼 분류 → SiteMap 반환.
 
@@ -39,6 +40,9 @@ def smart_crawl(
     parsed_base = urllib.parse.urlparse(base_url)
 
     while to_visit:
+        if should_cancel and should_cancel():
+            logger.info("smart_crawl: cancellation requested")
+            break
         url, d = to_visit.popleft()
         if d > depth or url in visited:
             continue

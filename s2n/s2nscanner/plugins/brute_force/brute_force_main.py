@@ -1,12 +1,10 @@
-import logging
 from datetime import datetime
-from typing import List, Any, Optional, Dict
+from typing import Dict, List, Optional
 
 # S2N 인터페이스 및 데이터 구조 임포트
 from s2n.s2nscanner.interfaces import (
-    PluginContext, PluginResult, PluginStatus,
-    Finding, Severity, Confidence, PluginError,
-    PluginConfig
+    PluginConfig, PluginContext, PluginResult, PluginStatus,
+    Finding, Severity, Confidence, PluginError
 )
 
 # 내부 모듈 임포트
@@ -33,12 +31,15 @@ def _create_brute_force_finding(url: str, user: str, password: str) -> Finding:
 
 class BruteForcePlugin:
 
+    name = "brute_force"
+    description = "Checks whether common username and password combinations are accepted"
+
     # config를 받을 수 있도록 __init__ 메서드 추가
-    def __init__(self, config: Any = None):
-        # config 타입을 PluginConfig 대신 Any로 받아 유연성을 확보합니다.
+    def __init__(self, config: Optional[PluginConfig] = None):
         self.config = config
-        # depth: config에서 가져오거나 기본값 2 사용 (참고용, brute force는 crawler 미사용)
-        self.depth = int(getattr(config, "depth", 2)) if config else 2
+        # depth: custom_params에서 가져오거나 기본값 2 사용 (참고용, brute force는 crawler 미사용)
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.depth = int(custom_params.get("depth", 2))
 
     def _request_user_confirmation(self, plugin_context) -> bool:
         """
@@ -112,7 +113,11 @@ class BruteForcePlugin:
                 end_time=datetime.now(),
                 duration_seconds=(datetime.now() - start_time).total_seconds(),
                 requests_sent=requests_sent,
-                error=PluginError(message=message, timestamp=datetime.now())
+                error=PluginError(
+                    error_type="ConfigurationError",
+                    message=message,
+                    timestamp=datetime.now(),
+                )
             )
 
         # 2. 비밀번호 목록 초기화 (로거 전달)
@@ -130,7 +135,11 @@ class BruteForcePlugin:
                 end_time=datetime.now(),
                 duration_seconds=(datetime.now() - start_time).total_seconds(),
                 requests_sent=requests_sent,
-                error=PluginError(message=message, timestamp=datetime.now())
+                error=PluginError(
+                    error_type="PasswordListError",
+                    message=message,
+                    timestamp=datetime.now(),
+                )
             )
 
         # 3. 비밀번호 목록 일부 출력
@@ -168,7 +177,11 @@ class BruteForcePlugin:
         except Exception as e:
             message = f"스캔 중 최종 오류 발생: {type(e).__name__} - {e}"
             logger.error(message, exc_info=True)
-            error = PluginError(message=message, timestamp=datetime.now())
+            error = PluginError(
+                error_type=type(e).__name__,
+                message=message,
+                timestamp=datetime.now(),
+            )
         finally:
             if driver:
                 driver.quit()
@@ -192,5 +205,5 @@ class BruteForcePlugin:
 
 
 # main 함수 사용
-def main(config=None):
+def main(config: Optional[PluginConfig] = None):
     return BruteForcePlugin(config)

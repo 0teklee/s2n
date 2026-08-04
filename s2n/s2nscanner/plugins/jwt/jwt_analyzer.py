@@ -5,7 +5,7 @@ import hmac
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from s2n.s2nscanner.plugins.jwt.jwt_constants import (

@@ -1,7 +1,8 @@
+-r requirements.txt
 pytest
-requests
-selenium~=4.20
-beautifulsoup4~=4.12
-webdriver-manager
-click
+pytest-cov
 responses
+build
+twine
+ruff
+mypy

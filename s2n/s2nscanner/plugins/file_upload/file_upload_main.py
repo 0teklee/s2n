@@ -4,6 +4,7 @@ from datetime import datetime
 # interfaces에서 제공되는 타입 사용
 from s2n.s2nscanner.interfaces import (
     Finding,
+    PluginConfig,
     PluginContext,
     PluginError,
     PluginResult,
@@ -31,10 +32,11 @@ class FileUploadPlugin:
     name = "file_upload"
     description = "파일 업로드 취약점을 탐지합니다."
 
-    def __init__(self, config: Optional[PluginContext] = None):
-        self.config = config or {}
-        # depth: config에서 가져오거나 기본값 2 사용
-        self.depth = int(getattr(self.config, "depth", 2))
+    def __init__(self, config: Optional[PluginConfig] = None):
+        self.config = config
+        # depth: custom_params에서 가져오거나 기본값 2 사용
+        custom_params = getattr(config, "custom_params", None) or {}
+        self.depth = int(custom_params.get("depth", 2))
 
     def run(self, plugin_context: PluginContext) -> PluginResult:
         start_time = datetime.now()
@@ -136,7 +138,7 @@ class FileUploadPlugin:
             )
 
 
-def main(config: Optional[PluginContext] = None):
+def main(config: Optional[PluginConfig] = None):
     """플러그인 인스턴스를 생성하여 반환합니다."""
     return FileUploadPlugin(config)
 

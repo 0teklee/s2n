@@ -552,7 +552,7 @@ class ReflectedScanner:
 
         # Token 강화 모드: 매 페이로드 refresh 제거 (detect 시 최초 1회만)
 
-        updated = False
+        updated_fields: List[str] = []
         for name in list(params.keys()):
             lower = name.lower()
             # 토큰 관련 파라미터 및 버튼 관련 파라미터는 건너뜀
@@ -562,9 +562,9 @@ class ReflectedScanner:
                 continue
             # 페이로드로 파라미터 값 변경
             params[name] = payload
-            updated = True
+            updated_fields.append(name)
 
-        if not updated:
+        if not updated_fields:
             # 변경된 파라미터가 없으면 테스트 불가
             return None
 
@@ -596,6 +596,8 @@ class ReflectedScanner:
             escaped = html.escape(payload)
             # 페이로드 또는 고유 태그가 응답에 포함되어 있는지 검사
             if payload in body or unique_tag in body or escaped in body:
+                # SAFETY-04: 저장된 페이로드가 서버에 영구 잔류하지 않도록 best-effort 정리 시도
+                self._cleanup_stored_payload(point, params, updated_fields)
                 return PayloadResult(
                     payload=payload,
                     context="stored",
@@ -610,6 +612,39 @@ class ReflectedScanner:
             return None
 
         return None
+
+    def _cleanup_stored_payload(
+        self, point: InputPoint, params: Dict[str, str], payload_fields: List[str]
+    ) -> None:
+        """SAFETY-04: Stored XSS 확인 직후 삽입한 페이로드가 서버(DB)에 영구 잔류해
+        이후 방문자(테스터 포함)에게 실행되지 않도록, 동일 필드를 중립 값으로 재제출한다.
+        Best-effort이며 실패해도 스캔 자체는 계속 진행한다 — 실패 시 로그로 수동 정리를 유도한다.
+        """
+        cleanup_params = params.copy()
+        for name in payload_fields:
+            cleanup_params[name] = "s2n_scan_cleanup"
+        try:
+            if point.method.upper() == "POST":
+                self.transport.post(
+                    point.url, data=cleanup_params, timeout=DEFAULT_TIMEOUT
+                )
+            else:
+                self.transport.get(
+                    point.url, params=cleanup_params, timeout=DEFAULT_TIMEOUT
+                )
+            logger.info(
+                "[STORED-XSS] Cleanup submitted for %s (fields=%s)",
+                point.url,
+                payload_fields,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[STORED-XSS] Cleanup failed for %s (fields=%s) — payload may remain "
+                "stored, manual verification required: %s",
+                point.url,
+                payload_fields,
+                exc,
+            )
 
     def _test_payload(
         self, point: InputPoint, param_name: str, payload: str
@@ -708,6 +743,14 @@ class ReflectedScanner:
                 else "Payload reflected without encoding"
             )
             evidence = first_match.description if first_match else None
+            is_stored = finding.parameter == "[stored]"
+            remediation = (
+                "Sanitize and encode all stored user input before rendering it back to any "
+                "visitor. S2N attempted a best-effort cleanup of the injected test payload — "
+                "manually verify the affected page/record no longer contains or executes it."
+                if is_stored
+                else None
+            )
             results.append(
                 S2NFinding(
                     id=f"xss-{idx}",
@@ -720,6 +763,7 @@ class ReflectedScanner:
                     method=finding.method,
                     payload=payload,
                     evidence=evidence,
+                    remediation=remediation,
                     confidence=confidence_val,
                     timestamp=datetime.now(timezone.utc),
                 )

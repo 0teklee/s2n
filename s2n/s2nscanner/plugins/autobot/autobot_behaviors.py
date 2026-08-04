@@ -9,9 +9,8 @@ BotBehavior 추상 클래스 및 기본 봇 행위 구현체.
 import logging
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
-from urllib.parse import urljoin, urlparse
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
