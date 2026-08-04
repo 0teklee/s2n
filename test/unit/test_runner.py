@@ -204,7 +204,11 @@ def test_scan_output_report_error_returns_failure(cli_runner, monkeypatch, fake_
 
 def test_ai_mode_without_provider_exits_with_clear_error(cli_runner, fake_common, monkeypatch):
     """s2n-agent는 provider를 명시하지 않으면 Ollama/HuggingFace로 자동 선택하지 않고
-    ValueError를 던진다 — runner가 이걸 잡아서 traceback 대신 명확한 CLI 오류로 보여줘야 한다."""
+    ValueError를 던진다 — runner가 이걸 잡아서 traceback 대신 명확한 CLI 오류로 보여줘야 한다.
+
+    s2n-agent는 선택적(ai extra) 의존성이라 CI의 기본 [dev] 설치에는 포함되지 않는다 —
+    미설치 환경에서는 건너뛴다."""
+    pytest.importorskip("s2nagent")
     monkeypatch.delenv("S2NAGENT_PROVIDER", raising=False)
 
     result = cli_runner.invoke(
@@ -226,7 +230,8 @@ def test_ai_mode_without_provider_exits_with_clear_error(cli_runner, fake_common
 
 
 def test_ai_mode_with_explicit_provider_activates_agent(cli_runner, fake_common, monkeypatch):
-    """provider를 명시하면 AI 모드가 정상적으로 활성화된다."""
+    """provider를 명시하면 AI 모드가 정상적으로 활성화된다. s2n-agent 미설치 환경에서는 건너뛴다."""
+    pytest.importorskip("s2nagent")
     monkeypatch.delenv("S2NAGENT_PROVIDER", raising=False)
 
     result = cli_runner.invoke(
