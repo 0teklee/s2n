@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from types import SimpleNamespace
 from datetime import datetime
 
@@ -199,3 +200,79 @@ def test_scan_output_report_error_returns_failure(cli_runner, monkeypatch, fake_
 
     assert result.exit_code == 1
     assert "Failed to output report: boom" in result.output
+
+
+def test_ai_mode_without_provider_exits_with_clear_error(cli_runner, fake_common, monkeypatch):
+    """s2n-agent는 provider를 명시하지 않으면 Ollama/HuggingFace로 자동 선택하지 않고
+    ValueError를 던진다 — runner가 이걸 잡아서 traceback 대신 명확한 CLI 오류로 보여줘야 한다."""
+    monkeypatch.delenv("S2NAGENT_PROVIDER", raising=False)
+
+    result = cli_runner.invoke(
+        runner_mod.scan,
+        [
+            "--url",
+            "http://example.com",
+            "--plugin",
+            "oscommand",
+            "--output",
+            "result.json",
+            "--ai-mode",
+            "smart",
+        ],
+    )
+
+    assert result.exit_code == 1, f"expected failure, got: {result.output}"
+    assert "provider" in result.output.lower()
+
+
+def test_ai_mode_with_explicit_provider_activates_agent(cli_runner, fake_common, monkeypatch):
+    """provider를 명시하면 AI 모드가 정상적으로 활성화된다."""
+    monkeypatch.delenv("S2NAGENT_PROVIDER", raising=False)
+
+    result = cli_runner.invoke(
+        runner_mod.scan,
+        [
+            "--url",
+            "http://example.com",
+            "--plugin",
+            "oscommand",
+            "--output",
+            "result.json",
+            "--ai-mode",
+            "smart",
+            "--ai-provider",
+            "anthropic",
+            "--ai-model",
+            "claude-sonnet-4-5",
+            "--ai-api-key",
+            "test-key",
+        ],
+    )
+
+    assert result.exit_code == 0, f"CLI failed: {result.output}"
+    # Rich는 터미널 폭에 맞춰 줄바꿈하며 줄마다 ANSI 색상 코드를 다시 삽입하므로,
+    # 코드를 제거하고 공백도 정규화한 뒤 비교한다.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    plain = " ".join(plain.split())
+    assert "S2N-Agent 활성화" in plain
+    assert "provider=anthropic" in plain
+
+
+def test_auto_is_not_a_valid_ai_provider_choice(cli_runner):
+    """auto는 더 이상 유효한 provider가 아니다 — Ollama/HuggingFace 자동 선택 제거."""
+    result = cli_runner.invoke(
+        runner_mod.scan,
+        [
+            "--url",
+            "http://example.com",
+            "--plugin",
+            "oscommand",
+            "--ai-mode",
+            "smart",
+            "--ai-provider",
+            "auto",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "auto" in result.output.lower()
