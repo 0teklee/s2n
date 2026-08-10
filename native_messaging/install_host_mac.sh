@@ -34,6 +34,13 @@ fi
 
 EXTENSION_ID="$1"
 
+# ----- Extension ID 형식 검증 -----
+if ! [[ "$EXTENSION_ID" =~ ^[a-p]{32}$ ]]; then
+    echo -e "${RED}❌ 잘못된 EXTENSION_ID 형식입니다: $EXTENSION_ID${NC}"
+    echo "  Chrome Extension ID는 소문자(a-p) 32자여야 합니다."
+    exit 1
+fi
+
 # ----- 경로 설정 -----
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -82,8 +89,8 @@ export PYTHONPATH="\$SCRIPT_DIR:\$SCRIPT_DIR/s2n:\$PYTHONPATH"
 if [ -f "\$SCRIPT_DIR/.venv/bin/python3" ]; then
     PYTHON_EXE="\$SCRIPT_DIR/.venv/bin/python3"
 else
-    # Automatically capture the python3 that is active when the script runs
-    PYTHON_EXE="$(which python3)"
+    # Escaped so this is evaluated when the launcher runs, not when installed
+    PYTHON_EXE="\$(which python3)"
 fi
 
 exec "\$PYTHON_EXE" "\$SCRIPT_DIR/native_host.py" "\$@"
