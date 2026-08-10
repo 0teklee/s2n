@@ -10,12 +10,7 @@ export function OptionsApp() {
     const [isLoading, setIsLoading] = useState(true)
     const [activeTab, setActiveTab] = useState<'history' | 'settings'>('history')
 
-    useEffect(() => {
-        loadHistory()
-    }, [])
-
     const loadHistory = async () => {
-        setIsLoading(true)
         try {
             const data = await getScanHistory()
             setHistory(data)
@@ -25,6 +20,11 @@ export function OptionsApp() {
             setIsLoading(false)
         }
     }
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회성 데이터 로드
+        loadHistory()
+    }, [])
 
     const handleDelete = async (scanId: string) => {
         if (confirm('이 스캔 기록을 삭제하시겠습니까?')) {
