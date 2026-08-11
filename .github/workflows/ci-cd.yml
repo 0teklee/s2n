@@ -28,7 +28,7 @@ jobs:
       
       - name: Install project dependencies
         run: |
-          pip install -e ".[dev]"
+          pip install -e ".[ai,dev]"
 
       - name: Run Python lint
         run: ruff check s2n native_host.py

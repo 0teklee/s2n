@@ -83,6 +83,8 @@ export const AVAILABLE_PLUGINS = [
     { id: 'soft_brute_force', name: 'Soft Brute Force', description: 'Rate-limited login attacks' },
     { id: 'jwt', name: 'JWT', description: 'JWT vulnerability analysis' },
     { id: 'autobot', name: 'Autobot', description: 'Automated behavior detection' },
+    { id: 'path_traversal', name: 'Path Traversal', description: 'Directory/file traversal attacks' },
+    { id: 'sensitive_files', name: 'Sensitive Files', description: 'Exposed sensitive file discovery' },
 ]
 
 /** 초기 스캔 상태 — 호출할 때마다 새 배열/객체를 생성한다 (공유 뮤터블 상태 금지) */
