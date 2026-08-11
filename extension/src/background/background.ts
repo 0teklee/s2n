@@ -45,8 +45,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (message.type === 'start_scan') {
-        const { targetUrl, plugins, acceptRisk } = message.payload
-        sendResponse(scanController.startScan(targetUrl, plugins, acceptRisk))
+        const { targetUrl, plugins, acceptRisk, aiSettings } = message.payload
+        sendResponse(scanController.startScan(targetUrl, plugins, acceptRisk, aiSettings))
         return false
     }
 

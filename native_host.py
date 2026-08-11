@@ -37,6 +37,12 @@ try:
         ProgressInfo,
         Severity,
     )
+    from s2n.s2nscanner.ai_integration import (
+        build_ai_plugins,
+        AiPluginSetup,
+        S2NAgentNotInstalled,
+        AiIntegrationError,
+    )
     S2N_AVAILABLE = True
 except ImportError:
     S2N_AVAILABLE = False
@@ -170,10 +176,15 @@ def _run_scan_thread(
     selected_plugins: List[str],
     accept_risk: bool,
     cancel_event: threading.Event,
+    ai_mode: str = "off",
+    ai_model: Optional[str] = None,
+    ai_endpoint: Optional[str] = None,
+    ai_provider: Optional[str] = None,
+    ai_api_key: Optional[str] = None,
 ) -> None:
     """백그라운드 스레드에서 실제 스캔을 수행하고 결과를 콜백을 통해 스트리밍합니다."""
-    log_info(f"스캔 스레드 시작: {target_url}, 플러그인: {selected_plugins}")
-    
+    log_info(f"스캔 스레드 시작: {target_url}, 플러그인: {selected_plugins}, ai_mode: {ai_mode}")
+
     try:
         # ScanConfig 구성
         plugin_configs = {p: PluginConfig(enabled=True) for p in selected_plugins}
@@ -183,6 +194,29 @@ def _run_scan_thread(
             plugin_configs=plugin_configs,
             accept_risk=accept_risk,
         )
+
+        # AI 모드 배선 (CLI의 runner.py와 동일한 ai_integration.build_ai_plugins() 헬퍼 공유)
+        ai_setup: Optional[AiPluginSetup] = None
+        try:
+            ai_setup = build_ai_plugins(
+                ai_mode=ai_mode,
+                ai_model=ai_model,
+                ai_endpoint=ai_endpoint,
+                ai_provider=ai_provider,
+                ai_api_key=ai_api_key,
+                plugin_list=selected_plugins,
+            )
+        except S2NAgentNotInstalled:
+            log_info("s2nagent 패키지 미설치 — AI 모드 비활성화. `pip install s2n-agent` 실행 필요.")
+            ai_setup = None
+        except AiIntegrationError as exc:
+            log_error(f"AI provider 설정 오류: {exc}")
+            write_message({
+                "status": "error",
+                "action": "scan_failed",
+                "error": f"AI provider 설정 오류: {exc}",
+            })
+            return
 
         # 콜백: 진행 상황 전송
         def _on_progress(info: ProgressInfo) -> None:
@@ -199,8 +233,14 @@ def _run_scan_thread(
                 }
             })
 
-        # 콜백: 취약점 발견 시 전송
+        # 콜백: 취약점 발견 시 전송 (AI agent_plugin.on_finding을 먼저 호출한 뒤 기존 스트리밍 유지)
         def _on_finding(finding: Finding) -> None:
+            if ai_setup and ai_setup.on_finding:
+                try:
+                    ai_setup.on_finding(finding)
+                except Exception as exc:
+                    log_error(f"AI on_finding 콜백 오류: {exc}")
+
             if cancel_event.is_set():
                 return
             write_message({
@@ -226,14 +266,20 @@ def _run_scan_thread(
         # Scanner 인스턴스화 및 실행 (사전 정의된 선택 플러그인만 허용하도록 주입 가능)
         scanner = Scanner(
             config=scan_config,
+            plugins=ai_setup.plugins if ai_setup else None,
             on_progress=_on_progress,
             on_finding=_on_finding,
             cancel_event=cancel_event,
         )
-        
+
         # Scanner 엔진 내부의 allowed_plugins_order를 덮어씌워서 선택한 플러그인만 실행되도록 제어
         # Scanner.__init__에서 설정한 속성을 수정
         scanner.allowed_plugins = set([p.lower() for p in selected_plugins])
+        if ai_setup and ai_setup.agent_plugin_name:
+            # AI 모드에서는 s2n_agent도 allowed_plugins에 없으면 discover_plugins() 필터에 걸려
+            # 조용히 실행되지 않는다 (native_host.py는 CLI와 달리 plugin_list가 아닌
+            # allowed_plugins로 직접 필터링하기 때문) — 반드시 보정 필요.
+            scanner.allowed_plugins.add(ai_setup.agent_plugin_name.lower())
 
         report = scanner.scan()
 
@@ -331,6 +377,11 @@ def handle_start_scan(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     target_url = data["target_url"]
     selected_plugins = data.get("plugins", [])
     accept_risk = bool(data.get("accept_risk", False))
+    ai_mode = data.get("ai_mode", "off")
+    ai_model = data.get("ai_model")
+    ai_endpoint = data.get("ai_endpoint")
+    ai_provider = data.get("ai_provider")
+    ai_api_key = data.get("ai_api_key")
 
     parsed = urlparse(target_url) if isinstance(target_url, str) else None
     if not parsed or parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -354,6 +405,13 @@ def handle_start_scan(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     thread = threading.Thread(
         target=_run_scan_thread,
         args=(target_url, selected_plugins, accept_risk, current_cancel_event),
+        kwargs={
+            "ai_mode": ai_mode,
+            "ai_model": ai_model,
+            "ai_endpoint": ai_endpoint,
+            "ai_provider": ai_provider,
+            "ai_api_key": ai_api_key,
+        },
         daemon=True
     )
     current_scan_thread = thread

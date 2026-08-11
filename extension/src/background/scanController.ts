@@ -11,6 +11,7 @@ import { saveScanHistory } from '@/lib/storage'
 import { AVAILABLE_PLUGINS, createInitialScanState } from '@/domain/scan'
 import type { ScanHistoryItem, ScanState } from '@/domain/scan'
 import { scanReducer } from '@/domain/scanReducer'
+import type { AiSettings } from '@/domain/aiSettings'
 import { decodeNativeEnvelope } from '@/protocol/native'
 
 type Listener = (state: ScanState) => void
@@ -68,7 +69,7 @@ class ScanController {
         }
     }
 
-    startScan(targetUrl: string, plugins: string[], acceptRisk: boolean): CommandResult {
+    startScan(targetUrl: string, plugins: string[], acceptRisk: boolean, aiSettings?: AiSettings): CommandResult {
         if (this.state.status === 'scanning') {
             return { success: false, error: 'Scan already in progress' }
         }
@@ -92,7 +93,14 @@ class ScanController {
 
         port.postMessage({
             action: 'start_scan',
-            data: { target_url: targetUrl, plugins, accept_risk: Boolean(acceptRisk) },
+            data: {
+                target_url: targetUrl, plugins, accept_risk: Boolean(acceptRisk),
+                ai_mode: aiSettings?.mode ?? 'off',
+                ai_provider: aiSettings?.provider,
+                ai_model: aiSettings?.model,
+                ai_endpoint: aiSettings?.endpoint,
+                ai_api_key: aiSettings?.apiKey,
+            },
         })
 
         return { success: true }

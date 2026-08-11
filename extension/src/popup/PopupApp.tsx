@@ -4,6 +4,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useScan } from '@/hooks/useScan'
 import { AVAILABLE_PLUGINS } from '@/types/scan'
 import type { Severity } from '@/types/scan'
+import { DEFAULT_AI_SETTINGS } from '@/domain/aiSettings'
+import type { AiSettings } from '@/domain/aiSettings'
+import { getAiSettings, saveAiSettings } from '@/lib/storage'
 import {
     Play, Square, Loader2, AlertTriangle,
     ShieldCheck, ShieldAlert, X, Download,
@@ -107,6 +110,8 @@ export function PopupApp() {
     const [showFindings, setShowFindings] = useState(false)
     const [smoothPct, setSmoothPct] = useState(0)
     const smoothPctRef = useRef(0)
+    const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS)
+    const isAiOn = aiSettings.mode !== 'off'
 
     const isScanning = state.status === 'validating' || state.status === 'scanning'
     const isCompleted = state.status === 'completed'
@@ -147,12 +152,23 @@ export function PopupApp() {
         }
     }, [])
 
+    useEffect(() => {
+        getAiSettings()
+            .then(setAiSettings)
+            .catch((err: unknown) => console.error('[PopupApp] Failed to load AI settings:', err))
+    }, [])
+
     const handleStart = (e: FormEvent) => {
         e.preventDefault()
-        if (canStart) startScan(url, selected, acceptRisk)
+        if (canStart) startScan(url, selected, acceptRisk, aiSettings)
     }
     const toggle = (id: string) =>
         setSelected(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
+    const toggleAi = (on: boolean) => {
+        const next: AiSettings = { ...aiSettings, mode: on ? 'assist' : 'off' }
+        setAiSettings(next)
+        saveAiSettings(next).catch((err: unknown) => console.error('[PopupApp] Failed to save AI settings:', err))
+    }
     const handleHome = () => { setShowFindings(false); stopScan() }
     const exportData = () => ({
         scanId: `export_${Date.now()}`,
@@ -453,6 +469,27 @@ export function PopupApp() {
                                     })}
                                 </div>
                             </div>
+
+                            <label style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 9,
+                                padding: '9px 10px', marginBottom: 12, borderRadius: 7,
+                                background: 'rgba(255,255,255,0.04)',
+                                border: '1px solid rgba(255,255,255,0.07)',
+                                cursor: 'pointer',
+                            }}>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: '#f4f4f5' }}>AI Assist</div>
+                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
+                                        발견된 취약점에 대해 AI 에이전트 권고를 함께 실행합니다 (provider는 Options에서 설정).
+                                    </div>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={isAiOn}
+                                    onChange={e => toggleAi(e.target.checked)}
+                                    style={{ flexShrink: 0, width: 16, height: 16, accentColor: '#f4f4f5' }}
+                                />
+                            </label>
 
                             {hasRiskyPlugin && (
                                 <label style={{

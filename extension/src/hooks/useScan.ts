@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { createInitialScanState } from '@/types/scan'
 import type { ScanState } from '@/types/scan'
+import type { AiSettings } from '@/domain/aiSettings'
 import { isNotInstalledError } from '@/lib/nativeMessaging'
 import { sendRuntimeCommand, type ExtensionResponse } from '@/lib/runtimeMessaging'
 
@@ -37,7 +38,7 @@ export function useScan() {
         return () => chrome.runtime.onMessage.removeListener(handleMessage)
     }, [])
 
-    const startScan = (targetUrl: string, plugins: string[], acceptRisk = false) => {
+    const startScan = (targetUrl: string, plugins: string[], acceptRisk = false, aiSettings?: AiSettings) => {
         // 짧은 로컬 낙관적 상태 — background의 상태 브로드캐스트가 항상 최종 권위를 가진다.
         setState({
             ...createInitialScanState(),
@@ -45,7 +46,7 @@ export function useScan() {
             targetUrl,
             selectedPlugins: plugins,
         })
-        sendRuntimeCommand({ type: 'start_scan', payload: { targetUrl, plugins, acceptRisk } })
+        sendRuntimeCommand({ type: 'start_scan', payload: { targetUrl, plugins, acceptRisk, aiSettings } })
             .catch((err: unknown) => {
                 setState(prev => ({ ...prev, status: 'failed', error: err instanceof Error ? err.message : 'Unable to start scan' }))
             })

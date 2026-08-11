@@ -3,6 +3,7 @@ import type { ScanHistoryItem } from '@/types/scan'
 import { getScanHistory, deleteScanHistoryItem, clearScanHistory } from '@/lib/storage'
 import { HistoryList } from './components/HistoryList'
 import { ScanDetail } from './components/ScanDetail'
+import { AiSettingsPanel } from './components/AiSettingsPanel'
 
 export function OptionsApp() {
     const [history, setHistory] = useState<ScanHistoryItem[]>([])
@@ -112,10 +113,7 @@ export function OptionsApp() {
                             </div>
                         )
                     ) : (
-                        <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground shadow-sm">
-                            <h3 className="text-lg font-medium mb-2">전역 설정</h3>
-                            <p className="text-sm">현재 준비 중인 기능입니다. 추후 업데이트 배포 시 플러그인 상세 설정, 테마, 알림 설정 등이 추가될 예정입니다.</p>
-                        </div>
+                        <AiSettingsPanel />
                     )}
                 </div>
             </main>

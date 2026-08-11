@@ -4,8 +4,11 @@
 
 import { normalizeReferences } from '@/types/scan'
 import type { ScanHistoryItem } from '@/types/scan'
+import { DEFAULT_AI_SETTINGS } from '@/domain/aiSettings'
+import type { AiSettings } from '@/domain/aiSettings'
 
 const STORAGE_KEY = 's2n_scan_history'
+const AI_SETTINGS_KEY = 's2n_ai_settings'
 // unlimitedStorage 권한이 없어 chrome.storage.local 기본 할당량(10MB)에 걸릴 수 있음 — 오래된 기록부터 제거
 const MAX_HISTORY_ITEMS = 50
 const MAX_HISTORY_BYTES = 8 * 1024 * 1024
@@ -91,6 +94,38 @@ export async function deleteScanHistoryItem(scanId: string): Promise<void> {
 export async function clearScanHistory(): Promise<void> {
     return new Promise((resolve, reject) => {
         chrome.storage.local.remove([STORAGE_KEY], () => {
+            const error = storageError()
+            if (error) reject(error)
+            else resolve()
+        })
+    })
+}
+
+/**
+ * AI 모드 설정 로드
+ * `chrome.storage.session` 사용 — 브라우저 재시작 시 자동 삭제되어 API 키 노출 창을 줄인다.
+ * 저장된 값이 없으면 DEFAULT_AI_SETTINGS(mode: 'off')를 반환한다.
+ */
+export async function getAiSettings(): Promise<AiSettings> {
+    return new Promise((resolve, reject) => {
+        chrome.storage.session.get([AI_SETTINGS_KEY], (result) => {
+            const error = storageError()
+            if (error) {
+                reject(error)
+                return
+            }
+            const settings = result[AI_SETTINGS_KEY]
+            resolve(settings ?? DEFAULT_AI_SETTINGS)
+        })
+    })
+}
+
+/**
+ * AI 모드 설정 저장
+ */
+export async function saveAiSettings(settings: AiSettings): Promise<void> {
+    return new Promise((resolve, reject) => {
+        chrome.storage.session.set({ [AI_SETTINGS_KEY]: settings }, () => {
             const error = storageError()
             if (error) reject(error)
             else resolve()
